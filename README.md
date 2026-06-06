@@ -19,16 +19,16 @@ OtoRig / DrumLoom などの JUCE / VST3 / AU 製品に、OtoMarket の
 SDK コアは JUCE に依存しません。JUCE を使わない CTest でビルドできます。
 
 English setup steps and sandbox keys are available in
-[`docs/license-integration/quickstart.md`](../../docs/license-integration/quickstart.md).
+[`docs/license-integration/quickstart.md`](docs/license-integration/quickstart.md).
 
 ## CMake 取り込み
 
 ### add_subdirectory
 
-リポジトリ内または vendoring した SDK を直接使う場合:
+公開リポジトリを clone するか Releases の zip を展開して配置した SDK を直接使う場合:
 
 ```cmake
-add_subdirectory(path/to/otomarket/packages/license-sdk-cpp)
+add_subdirectory(path/to/otomarket-license-sdk)
 target_link_libraries(YourPluginTarget PRIVATE otomarket::license_sdk)
 ```
 
@@ -36,7 +36,7 @@ JUCE HTTP アダプタも使う場合:
 
 ```cmake
 set(OTOMARKET_LICENSE_SDK_BUILD_JUCE_ADAPTER ON CACHE BOOL "")
-add_subdirectory(path/to/otomarket/packages/license-sdk-cpp)
+add_subdirectory(path/to/otomarket-license-sdk)
 target_link_libraries(YourPluginTarget PRIVATE otomarket::license_sdk_juce)
 ```
 
@@ -45,7 +45,7 @@ target_link_libraries(YourPluginTarget PRIVATE otomarket::license_sdk_juce)
 ```cmake
 set(OTOMARKET_LICENSE_SDK_BUILD_JUCE_ADAPTER ON CACHE BOOL "")
 set(OTOMARKET_LICENSE_SDK_BUILD_ACTIVATION_PANEL ON CACHE BOOL "")
-add_subdirectory(path/to/otomarket/packages/license-sdk-cpp)
+add_subdirectory(path/to/otomarket-license-sdk)
 target_link_libraries(YourPluginTarget
   PRIVATE
     otomarket::license_sdk_juce
@@ -62,9 +62,8 @@ include(FetchContent)
 
 FetchContent_Declare(
   otomarket_license_sdk
-  GIT_REPOSITORY https://github.com/percusshon/otomarket.git
-  GIT_TAG main
-  SOURCE_SUBDIR packages/license-sdk-cpp
+  GIT_REPOSITORY https://github.com/percusshon/otomarket-license-sdk.git
+  GIT_TAG v1.0.0
 )
 
 FetchContent_MakeAvailable(otomarket_license_sdk)
