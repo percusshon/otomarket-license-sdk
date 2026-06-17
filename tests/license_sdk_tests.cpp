@@ -1517,8 +1517,14 @@ void rejectsTamperedLicenseSnapshot() {
   const KeyPair keyPair = generateKeyPair();
   const std::string token = snapshotToken(keyPair);
 
+  // Tamper the first character of the signature segment. The last base64url
+  // character of an Ed25519 signature only carries 2 meaningful bits (the rest
+  // is padding), so toggling it can be a no-op on decode and let the signature
+  // still verify (flaky). The first signature character is fully meaningful.
   std::string signatureTampered = token;
-  signatureTampered.back() = signatureTampered.back() == 'A' ? 'B' : 'A';
+  const size_t signatureStart = token.rfind('.') + 1;
+  signatureTampered[signatureStart] =
+    signatureTampered[signatureStart] == 'A' ? 'B' : 'A';
 
   auto signatureResult = otomarket::license::verifyLicenseSnapshot(
     signatureTampered,
@@ -1807,12 +1813,12 @@ void activationUiButtonStatesAreStable() {
 }
 
 void versionMacrosMatchProjectVersion() {
-  requireEqual(OTOMARKET_LICENSE_SDK_VERSION_MAJOR, 0, "major version mismatch");
+  requireEqual(OTOMARKET_LICENSE_SDK_VERSION_MAJOR, 1, "major version mismatch");
   requireEqual(OTOMARKET_LICENSE_SDK_VERSION_MINOR, 1, "minor version mismatch");
   requireEqual(OTOMARKET_LICENSE_SDK_VERSION_PATCH, 0, "patch version mismatch");
   requireEqual(
     std::string(OTOMARKET_LICENSE_SDK_VERSION_STRING),
-    std::string("0.1.0"),
+    std::string("1.1.0"),
     "version string mismatch"
   );
 }

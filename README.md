@@ -64,7 +64,7 @@ include(FetchContent)
 FetchContent_Declare(
   otomarket_license_sdk
   GIT_REPOSITORY https://github.com/percusshon/otomarket-license-sdk.git
-  GIT_TAG v1.0.0
+  GIT_TAG v1.1.0
 )
 
 FetchContent_MakeAvailable(otomarket_license_sdk)
