@@ -53,8 +53,10 @@ public:
     result.operation = operation_;
 
     try {
-      if (operation_ == Operation::Activate) {
-        const ActivateResult activated = client_.otoActivate(productId_, licenseKey_, machineName_);
+      if (operation_ == Operation::Activate || operation_ == Operation::StartTrial) {
+        const ActivateResult activated = operation_ == Operation::StartTrial
+          ? client_.otoStartTrial(productId_)
+          : client_.otoActivate(productId_, licenseKey_, machineName_);
         result.ok = activated.ok;
         result.error = activated.error;
         result.errorMessage = activated.errorMessage;
@@ -136,6 +138,8 @@ LicenseActivationPanel::LicenseActivationPanel(Client& client, LicenseActivation
 
   activateButton_.setButtonText(options_.strings.activateButton);
   activateButton_.addListener(this);
+  trialButton_.setButtonText(options_.strings.trialButton);
+  trialButton_.addListener(this);
   deactivateButton_.setButtonText(options_.strings.deactivateButton);
   deactivateButton_.addListener(this);
 
@@ -147,6 +151,11 @@ LicenseActivationPanel::LicenseActivationPanel(Client& client, LicenseActivation
   addAndMakeVisible(licenseKeyLabel_);
   addAndMakeVisible(licenseKeyEditor_);
   addAndMakeVisible(activateButton_);
+  if (options_.enableTrial) {
+    addAndMakeVisible(trialButton_);
+  } else {
+    trialButton_.setVisible(false);
+  }
   addAndMakeVisible(deactivateButton_);
   addAndMakeVisible(statusLabel_);
   addAndMakeVisible(detailsLabel_);
@@ -161,6 +170,7 @@ LicenseActivationPanel::LicenseActivationPanel(Client& client, LicenseActivation
 LicenseActivationPanel::~LicenseActivationPanel() {
   threadPool_.removeAllJobs(true, 10000);
   activateButton_.removeListener(this);
+  trialButton_.removeListener(this);
   deactivateButton_.removeListener(this);
   licenseKeyEditor_.removeListener(this);
 }
@@ -173,6 +183,7 @@ void LicenseActivationPanel::setStrings(LicenseActivationStrings strings) {
     juce::Colours::grey
   );
   activateButton_.setButtonText(options_.strings.activateButton);
+  trialButton_.setButtonText(options_.strings.trialButton);
   deactivateButton_.setButtonText(options_.strings.deactivateButton);
   applyCurrentView();
 }
@@ -192,6 +203,7 @@ void LicenseActivationPanel::refreshFromClient() {
   }
 
   applyCurrentView();
+  notifyLicenseStateChangedIfNeeded();
 }
 
 void LicenseActivationPanel::refreshAsync() {
@@ -203,9 +215,14 @@ void LicenseActivationPanel::resized() {
   licenseKeyLabel_.setBounds(area.removeFromTop(22));
 
   auto row = area.removeFromTop(34);
-  const int buttonWidth = juce::jmin(124, juce::jmax(96, row.getWidth() / 4));
+  const int buttonWidth = options_.enableTrial
+    ? juce::jmin(124, juce::jmax(96, row.getWidth() / 5))
+    : juce::jmin(124, juce::jmax(96, row.getWidth() / 4));
   deactivateButton_.setBounds(row.removeFromRight(buttonWidth).reduced(4, 2));
   activateButton_.setBounds(row.removeFromRight(buttonWidth).reduced(4, 2));
+  if (options_.enableTrial) {
+    trialButton_.setBounds(row.removeFromRight(buttonWidth).reduced(4, 2));
+  }
   licenseKeyEditor_.setBounds(row.reduced(0, 2));
 
   area.removeFromTop(8);
@@ -218,6 +235,8 @@ void LicenseActivationPanel::resized() {
 void LicenseActivationPanel::buttonClicked(juce::Button* button) {
   if (button == &activateButton_) {
     startOperation(Operation::Activate);
+  } else if (button == &trialButton_ && options_.enableTrial) {
+    startOperation(Operation::StartTrial);
   } else if (button == &deactivateButton_) {
     startOperation(Operation::Deactivate);
   }
@@ -273,6 +292,7 @@ void LicenseActivationPanel::finishOperation(const OperationResult& result) {
   }
 
   applyCurrentView();
+  notifyLicenseStateChangedIfNeeded();
 }
 
 void LicenseActivationPanel::applyCurrentView() {
@@ -293,7 +313,20 @@ void LicenseActivationPanel::applyCurrentView() {
   detailsLabel_.setText(view.detailsText, juce::dontSendNotification);
   errorLabel_.setText(view.errorText, juce::dontSendNotification);
   activateButton_.setEnabled(view.canActivate);
+  const bool hasActiveLicense = displayedState_ == LicenseState::Licensed ||
+    displayedState_ == LicenseState::LicensedOfflineGrace ||
+    displayedState_ == LicenseState::VerifyDue;
+  trialButton_.setEnabled(options_.enableTrial && !busy_ && !hasActiveLicense);
   deactivateButton_.setEnabled(view.canDeactivate);
+}
+
+void LicenseActivationPanel::notifyLicenseStateChangedIfNeeded() {
+  if (!onLicenseStateChanged || displayedState_ == lastNotifiedState_) {
+    return;
+  }
+
+  lastNotifiedState_ = displayedState_;
+  onLicenseStateChanged(displayedState_);
 }
 
 std::string LicenseActivationPanel::busyTextFor(Operation operation) const {
@@ -301,6 +334,8 @@ std::string LicenseActivationPanel::busyTextFor(Operation operation) const {
     case Operation::Refresh:
       return options_.strings.checkingStatus;
     case Operation::Activate:
+      return options_.strings.activatingStatus;
+    case Operation::StartTrial:
       return options_.strings.activatingStatus;
     case Operation::Deactivate:
       return options_.strings.deactivatingStatus;

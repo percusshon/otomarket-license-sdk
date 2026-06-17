@@ -5,6 +5,7 @@
 #include <chrono>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -22,6 +23,8 @@ enum class ErrorCode {
   Revoked,
   NotFound,
   ProductMismatch,
+  TrialNotAvailable,
+  TrialExpired,
   NetworkError,
   InvalidResponse,
   InvalidSignature,
@@ -30,6 +33,7 @@ enum class ErrorCode {
   CacheMissing,
   MachineMismatch,
   ConfigError,
+  RequestRejected,
 };
 
 enum class LicenseState {
@@ -70,6 +74,15 @@ public:
     const std::string& body,
     const std::vector<HttpHeader>& headers
   ) = 0;
+
+  virtual HttpResponse getJson(
+    const std::string& url,
+    const std::vector<HttpHeader>& headers
+  ) {
+    (void)url;
+    (void)headers;
+    return HttpResponse{};
+  }
 };
 
 struct LicenseInfo {
@@ -81,6 +94,7 @@ struct LicenseInfo {
   std::chrono::system_clock::time_point issuedAt{};
   std::optional<std::chrono::system_clock::time_point> expiresAt;
   std::chrono::system_clock::time_point verifyAfter{};
+  bool isTrial = false;
 };
 
 struct ActivateResult {
@@ -109,6 +123,7 @@ struct VerifyTokenResult {
 
 struct Config {
   std::string baseUrl;
+  std::string keysUrl;
   std::string publicKeyPem;
   std::filesystem::path cachePath;
   std::shared_ptr<HttpTransport> http;
@@ -117,6 +132,9 @@ struct Config {
   std::string machineFingerprint;
   std::chrono::seconds verifyRetryGrace = std::chrono::hours(72);
   Clock clock;
+  std::chrono::seconds maxOffline = std::chrono::hours(24 * 30);
+  std::map<std::string, std::string> keyset;
+  std::chrono::seconds keysetTtl = std::chrono::hours(24);
 };
 
 std::string defaultMachineFingerprint();
@@ -128,7 +146,8 @@ VerifyTokenResult verifyLicenseToken(
   const std::string& publicKeyPem,
   const std::string& expectedProductId = {},
   const std::string& expectedMachineId = {},
-  std::optional<std::chrono::system_clock::time_point> now = std::nullopt
+  std::optional<std::chrono::system_clock::time_point> now = std::nullopt,
+  const std::map<std::string, std::string>& keyset = {}
 );
 
 class Client {
@@ -140,6 +159,8 @@ public:
     const std::string& licenseKey,
     const std::string& machineName = {}
   );
+
+  ActivateResult otoStartTrial(const std::string& productId);
 
   bool otoIsLicensed();
   DeactivateResult otoDeactivate();
@@ -158,12 +179,22 @@ private:
   bool writeCache(const CacheRecord& cache, std::string& message) const;
   bool removeCache(std::string& message) const;
   bool tryOnlineVerify(const CacheRecord& cache, LicenseInfo& license);
+  void loadKeysetCache();
+  void refreshKeyset();
+  void refreshKeysetIfDue();
+  VerifyTokenResult verifyTokenWithKeysetRefresh(
+    const std::string& token,
+    const std::string& expectedProductId,
+    const std::string& expectedMachineId,
+    std::chrono::system_clock::time_point currentTime
+  );
   void setState(LicenseState state, ErrorCode error = ErrorCode::None);
 
   Config config_;
   LicenseState state_ = LicenseState::Unknown;
   ErrorCode lastError_ = ErrorCode::None;
   std::optional<LicenseInfo> cachedLicense_;
+  std::optional<std::chrono::system_clock::time_point> keysetFetchedAt_;
 };
 
 } // namespace otomarket::license

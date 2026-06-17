@@ -22,6 +22,7 @@ endif()
 add_library(otomarket_license_sdk STATIC
   src/LicenseActivationUi.cpp
   src/LicenseSdk.cpp
+  src/LicenseSnapshot.cpp
   src/tweetnacl_randombytes.cpp
   vendor/tweetnacl/tweetnacl.c
 )

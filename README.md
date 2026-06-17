@@ -18,8 +18,9 @@ OtoRig / DrumLoom などの JUCE / VST3 / AU 製品に、OtoMarket の
 
 SDK コアは JUCE に依存しません。JUCE を使わない CTest でビルドできます。
 
-English setup steps and sandbox keys are available in
-[`docs/license-integration/quickstart.md`](docs/license-integration/quickstart.md).
+セットアップ手順とサンドボックスキー / Setup steps and sandbox keys:
+**[クイックスタート（日本語）](docs/license-integration/ja/quickstart.md)** ·
+**[Quickstart (English)](docs/license-integration/en/quickstart.md)**
 
 ## CMake 取り込み
 
@@ -98,9 +99,18 @@ target_link_libraries(YourPluginTarget PRIVATE otomarket::license_sdk)
 初期化時に以下を渡します。
 
 - `baseUrl`: 例 `https://staging.example.test/api/license/v1`
-- `publicKeyPem`: OtoMarket の Ed25519 signing public key
-- `cachePath`: ライセンスキャッシュ保存先
-- `http`: オンライン activation / verify / deactivate 用 transport
+- `publicKeyPem`: OtoMarket の Ed25519 signing public key（`kid` 無しの従来トークン検証＋フォールバック用）
+- `cachePath`: ライセンスキャッシュ保存先（keyset キャッシュも同じ場所の兄弟ファイルに保存）
+- `http`: オンライン activation / verify / deactivate / keyset 取得用 transport
+
+任意（省略可・既定で動作）：
+
+- `maxOffline`: オフライン信頼の上限（`issuedAt` 起点）。実効再検証期限は
+  `min(verifyAfter, issuedAt + maxOffline)`。既定 30 日。鍵漏洩時の被害を限定します。
+- `keysUrl`: 公開鍵セット（JWKS）エンドポイント。空なら `${baseUrl}/keys`。
+- `keysetTtl`: 取得済み keyset を再取得するまでの間隔（オンライン時）。既定 24 時間。
+  `maxOffline` とは独立。
+- `keyset`: `kid → 公開鍵` を事前に渡す場合に使用（通常は自動取得で不要）。
 
 staging の公開鍵値は SDK にハードコードしません。OtoMarket 側で発行した
 公開鍵を環境変数 `LICENSE_SIGNING_PUBLIC_KEY` に設定し、アプリ側の設定注入で
@@ -124,6 +134,11 @@ config.http = std::make_shared<otomarket::license::JuceHttpTransport>();
 otomarket::license::Client licenses(config);
 ```
 
+> **`Client` を唯一の真実源（source of truth）に**：ライセンス状態と署名トークンの
+> キャッシュは `Client` が own します。別途プレーンな entitlements JSON などの
+> 並行キャッシュリーダーを作らないでください（状態が二重化し、最初の実アダプター
+> OtoSpace で最大の混乱要因になりました）。
+
 ## 3 関数の使い方
 
 ```cpp
@@ -142,9 +157,56 @@ auto deactivated = licenses.otoDeactivate();
 ```
 
 `otoIsLicensed()` はローカルキャッシュを読み、署名・productId・machineId・
-期限を検証します。`verifyAfter` を過ぎている場合はオンライン `verify` を試み、
-API が一時的に落ちている場合は `Config.verifyRetryGrace` の範囲内だけ
-`true` を返します。既定値は 72 時間です。
+期限を検証します。実効再検証期限 `min(verifyAfter, issuedAt + maxOffline)`（既定上限 30 日）
+を過ぎている場合はオンライン `verify` を試み、API が一時的に落ちている場合は
+`Config.verifyRetryGrace` の範囲内だけ `true` を返します（既定 72 時間）。
+`issuedAt` が未来のトークンは拒否します。
+
+### per-creator 鍵（keyset / JWKS）
+
+OtoMarket はクリエイターごとの鍵でライセンスを署名でき、鍵漏洩の影響をその
+クリエイターの商品だけに局所化できます。その場合トークン header に `kid` が入ります。
+**自動**で処理されます（設定は `publicKeyPem` を渡すだけで済みます）：
+
+- Client は `keysUrl`（既定 `${baseUrl}/keys`）から keyset を取得し `Config.keyset`
+  に統合・`cachePath` 兄弟ファイルにキャッシュ。TTL（`keysetTtl`、既定 24h）＋
+  activate/verify のついで＋未知 `kid` 検出時に再取得します。
+- `kid` 付きトークンは keyset の該当鍵で、`kid` 無し（従来）トークンは
+  `publicKeyPem` で検証します。
+- 取得は best-effort：エンドポイント不通や `getJson` 未対応の transport でも
+  `publicKeyPem` にフォールバックし、`otoIsLicensed()` をオフラインで `false` に
+  したりライセンスを失効させたりしません。自前 transport で keyset を使うには
+  `HttpTransport::getJson` を override してください（`JuceHttpTransport` は実装済み）。
+
+## HTTP リクエスト仕様（activate / verify / deactivate）
+
+`Client` がこれらを内部で組み立てて送信するため通常は直接扱う必要はありませんが、
+他言語からの結線や疎通確認のために契約を明記します（値は OtoMarket 側の
+`activateLicenseInputSchema` / `verifyLicenseInputSchema` に基づく）。
+
+`POST {baseUrl}/{activate|verify|deactivate}`、Content-Type は `application/json`：
+
+| フィールド | activate | verify / deactivate | 内容 |
+|---|---|---|---|
+| `productId` | 必須* | 必須* | 商品 ID（最大 128 文字）。`productKey` はエイリアスで、どちらか一方があればよい |
+| `productKey` | 必須* | 必須* | `productId` の別名（上と排他で「どちらか必須」） |
+| `licenseKey` | 必須 | 必須 | 発行済みライセンスキー（最大 256 文字） |
+| `machineId` | 必須 | 必須 | 安定した hashed マシン ID（`deriveMachineId` 推奨、最大 256 文字） |
+| `machineName` | 任意 | — | 表示用ラベル（activate のみ） |
+
+\* `productId` と `productKey` の**どちらか一方は必須**。両方欠けると
+`400`（`productId or productKey is required.`）。
+
+`activate` 成功レスポンス（要点）：
+
+```json
+{ "ok": true, "license": "<header.payload.signature>", "seatsUsed": 1, "maxActivations": 5, "expiresAt": null }
+```
+
+`license` は EdDSA 署名トークンで、公開鍵で `verifyLicenseToken(...)` 検証します。
+空ボディ `{}` を送ると `400 INVALID_REQUEST_BODY`（＝API に到達している合図）。
+失敗時の `error` コードは `SEAT_LIMIT` / `EXPIRED` / `REVOKED` / `NOT_FOUND` /
+`PRODUCT_MISMATCH` など。
 
 ## Lv2 埋め込みパネル
 
@@ -172,6 +234,79 @@ addAndMakeVisible(panel);
 `simplifiedChineseLicenseActivationStrings()`、`frenchLicenseActivationStrings()`、
 `russianLicenseActivationStrings()`、`koreanLicenseActivationStrings()` を用意しています。
 de / es / pt-BR / zh-CN / fr / ru / ko は機械翻訳・ネイティブ校正待ちです。
+
+### 初回ゲート方式
+
+初回起動時にメイン UI へライセンス部品を混ぜたくない場合は、
+`LicenseActivationPanel` をルートコンポーネント全面に表示し、認証後にメイン UI
+へ差し替えてください。パネルが表示するのは見出し、ライセンスキー入力、
+Activate / Deactivate、状態、エラー文言です。背景、製品ロゴ、ブランド配色は
+host 側で描けるため、メイン UI と同じ見た目に統一できます。
+
+```cpp
+class AppRoot final : public juce::Component {
+public:
+  AppRoot(otomarket::license::Client& licenses,
+          otomarket::license::LicenseActivationPanelOptions options)
+    : licenses_(licenses),
+      options_(std::move(options)) {
+    if (licenses_.otoIsLicensed()) {
+      showMainUi();
+    } else {
+      showGate();
+    }
+  }
+
+  void resized() override {
+    if (panel) {
+      panel->setBounds(getLocalBounds());
+    }
+    if (mainUi) {
+      mainUi->setBounds(getLocalBounds());
+    }
+  }
+
+private:
+  void showGate() {
+    mainUi.reset();
+    if (!panel) {
+      panel = std::make_unique<otomarket::license::LicenseActivationPanel>(
+        licenses_,
+        options_
+      );
+      panel->onLicenseStateChanged = [this](otomarket::license::LicenseState state) {
+        if (state == otomarket::license::LicenseState::Licensed
+            || state == otomarket::license::LicenseState::LicensedOfflineGrace) {
+          showMainUi();
+        } else {
+          showGate();
+        }
+      };
+      addAndMakeVisible(*panel);
+    }
+    resized();
+  }
+
+  void showMainUi() {
+    panel.reset();
+    if (!mainUi) {
+      mainUi = std::make_unique<juce::Label>("main", "Main UI");
+      addAndMakeVisible(*mainUi);
+    }
+    resized();
+  }
+
+  otomarket::license::Client& licenses_;
+  otomarket::license::LicenseActivationPanelOptions options_;
+  std::unique_ptr<otomarket::license::LicenseActivationPanel> panel;
+  std::unique_ptr<juce::Component> mainUi;
+};
+```
+
+2 回目以降は `otoIsLicensed()` が即 `true` になればメイン UI へ直行できます。
+ライセンス UI は初回 activation と、キャッシュ失効・deactivate・再認証が必要な
+状態のときだけ表示してください。完全なサンプルは
+`examples/FirstRunGateExample.cpp` です。
 
 ## machineId
 

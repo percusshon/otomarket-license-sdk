@@ -45,6 +45,38 @@ public:
     };
   }
 
+  HttpResponse getJson(
+    const std::string& url,
+    const std::vector<HttpHeader>& headers
+  ) override {
+    juce::String extraHeaders("Accept: application/json\r\n");
+
+    for (const auto& header : headers) {
+      if (header.name == "Accept") {
+        continue;
+      }
+      extraHeaders << juce::String(header.name) << ": " << juce::String(header.value) << "\r\n";
+    }
+
+    int statusCode = 0;
+    auto inputStream = juce::URL(juce::String(url))
+      .createInputStream(
+        juce::URL::InputStreamOptions(juce::URL::ParameterHandling::inAddress)
+          .withConnectionTimeoutMs(timeoutMs_)
+          .withExtraHeaders(extraHeaders)
+          .withStatusCode(&statusCode)
+      );
+
+    if (inputStream == nullptr) {
+      return {statusCode, {}};
+    }
+
+    return {
+      statusCode,
+      inputStream->readEntireStreamAsString().toStdString()
+    };
+  }
+
 private:
   int timeoutMs_ = 10000;
 };

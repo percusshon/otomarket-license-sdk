@@ -1,16 +1,16 @@
+<!-- lang-switch -->
+**English** · [日本語](../ja/quickstart.md)
+
 # OtoMarket License SDK Quickstart
 
-> Glossary / 用語集: **[plain-words terms](./glossary.md)** (EN/JA).
+> Glossary: **[plain-words terms](./glossary.md)**.
 
-**In plain words / やさしく言うと**: EN — try activation end-to-end with a free
-**sandbox** key, no real purchase, using `curl` then the SDK. JA — 無料の **sandbox** キーで、実購入なしに認証を最初から最後まで試す（まず `curl`、次に SDK）。
-**You'll know it worked when / 成功の合図**: EN — `verify` returns
-`"ok": true` (and an empty body returns `INVALID_REQUEST_BODY`, which means the
-API is reachable). JA — `verify` が `"ok": true` を返す（空ボディなら `INVALID_REQUEST_BODY`＝APIに届いている合図）。
+**You'll know it worked when**: `verify` returns `"ok": true` (and an empty body
+returns `INVALID_REQUEST_BODY`, which means the API is reachable).
 
 This quickstart shows how to test OtoMarket license activation without a real
 purchase. It uses the Layer 1 license API and the C++ SDK in
-[`packages/license-sdk-cpp`](../..).
+[`packages/license-sdk-cpp`](../../..).
 
 ## Sandbox Values
 
@@ -118,6 +118,48 @@ set(OTOMARKET_LICENSE_SDK_BUILD_JUCE_ADAPTER ON CACHE BOOL "")
 FetchContent_MakeAvailable(otomarket_license_sdk)
 target_link_libraries(YourPluginTarget PRIVATE otomarket::license_sdk_juce)
 ```
+
+## Choosing How To Add The SDK
+
+Three ways to bring the SDK into your build. Pick by your sync and access needs:
+
+| Method | When to use | Trade-off |
+| --- | --- | --- |
+| `add_subdirectory` (vendored copy) | Self-contained repo; no access to the OtoMarket monorepo at build/CI time | Copy the SDK source under `third_party/`; update manually |
+| git submodule | Track upstream and stay in sync | Requires repo access at clone/CI time |
+| `FetchContent` (public SDK repo) | Simplest pin to a tagged release | Network fetch at configure time |
+
+The public SDK repo for `FetchContent`/submodule is
+`https://github.com/percusshon/otomarket-license-sdk` (used in the example above).
+
+### Keep It Behind Opt-In Flags
+
+Add the SDK only when a license build is requested, so normal/dev builds stay
+unaffected:
+
+```cmake
+option(MYPLUGIN_LICENSE_LIVE "License activation against the real API" OFF)
+
+if(MYPLUGIN_LICENSE_LIVE)
+  set(OTOMARKET_LICENSE_SDK_BUILD_JUCE_ADAPTER ON CACHE BOOL "")
+  set(OTOMARKET_LICENSE_SDK_BUILD_ACTIVATION_PANEL ON CACHE BOOL "")
+  add_subdirectory(third_party/otomarket-license-sdk)  # or FetchContent
+endif()
+```
+
+### Link Targets
+
+| Target | Provides |
+| --- | --- |
+| `otomarket::license_sdk` | core `Client` (no JUCE) |
+| `otomarket::license_sdk_juce` | `JuceHttpTransport` (real HTTP; LIVE only) |
+| `otomarket::license_sdk_activation_panel` | `Client` + ready-made `LicenseActivationPanel` |
+
+If you use `JuceHttpTransport`, also add the tweetnacl include dir
+`third_party/otomarket-license-sdk/vendor/tweetnacl` to your target.
+
+> Reference: the full wiring notes for OtoSpace, the first real adapter, are
+> recorded in OtoSound `docs/otomarket-license-sdk-integration.md`.
 
 ## Configure The Client
 

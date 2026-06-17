@@ -93,7 +93,9 @@ bool shouldShowNoExpiration(const LicenseActivationViewInput& input) {
 } // namespace
 
 LicenseActivationStrings englishLicenseActivationStrings() {
-  return {};
+  LicenseActivationStrings strings;
+  strings.trialButton = "Start free trial";
+  return strings;
 }
 
 LicenseActivationStrings japaneseLicenseActivationStrings() {
@@ -102,6 +104,7 @@ LicenseActivationStrings japaneseLicenseActivationStrings() {
   strings.licenseKeyPlaceholder = "ライセンスキーを入力";
   strings.activateButton = "認証";
   strings.deactivateButton = "解除";
+  strings.trialButton = "無料でためす";
   strings.checkingStatus = "ライセンス状態を確認中...";
   strings.activatingStatus = "認証中...";
   strings.deactivatingStatus = "解除中...";
@@ -129,6 +132,7 @@ LicenseActivationStrings japaneseLicenseActivationStrings() {
   strings.errorNotFound = "ライセンスキーが見つかりません。";
   strings.errorProductMismatch = "このライセンスは別の製品用です。";
   strings.errorNetwork = "ライセンスサーバーに接続できません。通信状態を確認して再試行してください。";
+  strings.errorRequestRejected = "ライセンスサーバーがリクエストを拒否しました。";
   strings.errorInvalidResponse = "ライセンスサーバーの応答が不正です。";
   strings.errorInvalidSignature = "保存済みライセンスの署名が不正です。";
   strings.errorInvalidCache = "保存済みライセンスファイルが不正です。";
@@ -148,6 +152,7 @@ LicenseActivationStrings germanLicenseActivationStrings() {
   strings.licenseKeyPlaceholder = "Lizenzschlüssel eingeben";
   strings.activateButton = "Aktivieren";
   strings.deactivateButton = "Deaktivieren";
+  strings.trialButton = "Kostenlos testen";
   strings.checkingStatus = "Lizenzstatus wird geprüft...";
   strings.activatingStatus = "Aktivierung läuft...";
   strings.deactivatingStatus = "Deaktivierung läuft...";
@@ -177,6 +182,7 @@ LicenseActivationStrings germanLicenseActivationStrings() {
   strings.errorProductMismatch = "Diese Lizenz ist für ein anderes Produkt.";
   strings.errorNetwork =
     "Der Lizenzserver konnte nicht erreicht werden. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.";
+  strings.errorRequestRejected = "Der Lizenzserver hat die Anfrage abgelehnt.";
   strings.errorInvalidResponse = "Der Lizenzserver hat eine ungültige Antwort zurückgegeben.";
   strings.errorInvalidSignature = "Die Signatur der gespeicherten Lizenz ist ungültig.";
   strings.errorInvalidCache = "Die gespeicherte Lizenzdatei ist ungültig.";
@@ -195,6 +201,7 @@ LicenseActivationStrings spanishLicenseActivationStrings() {
   strings.licenseKeyPlaceholder = "Introduce la clave de licencia";
   strings.activateButton = "Activar";
   strings.deactivateButton = "Desactivar";
+  strings.trialButton = "Probar gratis";
   strings.checkingStatus = "Comprobando licencia...";
   strings.activatingStatus = "Activando...";
   strings.deactivatingStatus = "Desactivando...";
@@ -224,6 +231,7 @@ LicenseActivationStrings spanishLicenseActivationStrings() {
   strings.errorProductMismatch = "Esta licencia es para un producto diferente.";
   strings.errorNetwork =
     "No se pudo conectar con el servidor de licencias. Revisa tu conexión e inténtalo de nuevo.";
+  strings.errorRequestRejected = "El servidor de licencias rechazó la solicitud.";
   strings.errorInvalidResponse = "El servidor de licencias devolvió una respuesta no válida.";
   strings.errorInvalidSignature = "La firma de la licencia guardada no es válida.";
   strings.errorInvalidCache = "El archivo de licencia guardado no es válido.";
@@ -241,6 +249,7 @@ LicenseActivationStrings brazilianPortugueseLicenseActivationStrings() {
   strings.licenseKeyPlaceholder = "Insira a chave de licença";
   strings.activateButton = "Ativar";
   strings.deactivateButton = "Desativar";
+  strings.trialButton = "Testar grátis";
   strings.checkingStatus = "Verificando licença...";
   strings.activatingStatus = "Ativando...";
   strings.deactivatingStatus = "Desativando...";
@@ -270,6 +279,7 @@ LicenseActivationStrings brazilianPortugueseLicenseActivationStrings() {
   strings.errorProductMismatch = "Esta licença é para um produto diferente.";
   strings.errorNetwork =
     "Não foi possível acessar o servidor de licenças. Verifique sua conexão e tente novamente.";
+  strings.errorRequestRejected = "O servidor de licenças rejeitou a solicitação.";
   strings.errorInvalidResponse = "O servidor de licenças retornou uma resposta inválida.";
   strings.errorInvalidSignature = "A assinatura da licença salva é inválida.";
   strings.errorInvalidCache = "O arquivo de licença salvo é inválido.";
@@ -287,6 +297,7 @@ LicenseActivationStrings simplifiedChineseLicenseActivationStrings() {
   strings.licenseKeyPlaceholder = "输入许可证密钥";
   strings.activateButton = "激活";
   strings.deactivateButton = "停用";
+  strings.trialButton = "免费试用";
   strings.checkingStatus = "正在检查许可证...";
   strings.activatingStatus = "正在激活...";
   strings.deactivatingStatus = "正在停用...";
@@ -314,6 +325,7 @@ LicenseActivationStrings simplifiedChineseLicenseActivationStrings() {
   strings.errorNotFound = "未找到许可证密钥。";
   strings.errorProductMismatch = "此许可证适用于其他产品。";
   strings.errorNetwork = "无法连接到许可证服务器。请检查连接后重试。";
+  strings.errorRequestRejected = "许可证服务器拒绝了请求。";
   strings.errorInvalidResponse = "许可证服务器返回了无效响应。";
   strings.errorInvalidSignature = "保存的许可证签名无效。";
   strings.errorInvalidCache = "保存的许可证文件无效。";
@@ -331,6 +343,7 @@ LicenseActivationStrings frenchLicenseActivationStrings() {
   strings.licenseKeyPlaceholder = "Saisir la clé de licence";
   strings.activateButton = "Activer";
   strings.deactivateButton = "Désactiver";
+  strings.trialButton = "Essai gratuit";
   strings.checkingStatus = "Vérification de la licence...";
   strings.activatingStatus = "Activation...";
   strings.deactivatingStatus = "Désactivation...";
@@ -360,6 +373,7 @@ LicenseActivationStrings frenchLicenseActivationStrings() {
   strings.errorProductMismatch = "Cette licence est destinée à un autre produit.";
   strings.errorNetwork =
     "Impossible de joindre le serveur de licences. Vérifiez votre connexion et réessayez.";
+  strings.errorRequestRejected = "Le serveur de licences a rejeté la requête.";
   strings.errorInvalidResponse = "Le serveur de licences a renvoyé une réponse invalide.";
   strings.errorInvalidSignature = "La signature de la licence enregistrée est invalide.";
   strings.errorInvalidCache = "Le fichier de licence enregistré est invalide.";
@@ -377,6 +391,7 @@ LicenseActivationStrings russianLicenseActivationStrings() {
   strings.licenseKeyPlaceholder = "Введите лицензионный ключ";
   strings.activateButton = "Активировать";
   strings.deactivateButton = "Деактивировать";
+  strings.trialButton = "Начать бесплатный пробный период";
   strings.checkingStatus = "Проверка лицензии...";
   strings.activatingStatus = "Активация...";
   strings.deactivatingStatus = "Деактивация...";
@@ -406,6 +421,7 @@ LicenseActivationStrings russianLicenseActivationStrings() {
   strings.errorProductMismatch = "Эта лицензия предназначена для другого продукта.";
   strings.errorNetwork =
     "Не удалось подключиться к серверу лицензий. Проверьте подключение и повторите попытку.";
+  strings.errorRequestRejected = "Сервер лицензий отклонил запрос.";
   strings.errorInvalidResponse = "Сервер лицензий вернул недействительный ответ.";
   strings.errorInvalidSignature = "Подпись сохраненной лицензии недействительна.";
   strings.errorInvalidCache = "Сохраненный файл лицензии недействителен.";
@@ -423,6 +439,7 @@ LicenseActivationStrings koreanLicenseActivationStrings() {
   strings.licenseKeyPlaceholder = "라이선스 키 입력";
   strings.activateButton = "활성화";
   strings.deactivateButton = "비활성화";
+  strings.trialButton = "무료 체험 시작";
   strings.checkingStatus = "라이선스 확인 중...";
   strings.activatingStatus = "활성화 중...";
   strings.deactivatingStatus = "비활성화 중...";
@@ -452,6 +469,7 @@ LicenseActivationStrings koreanLicenseActivationStrings() {
   strings.errorProductMismatch = "이 라이선스는 다른 제품용입니다.";
   strings.errorNetwork =
     "라이선스 서버에 연결할 수 없습니다. 연결을 확인하고 다시 시도하세요.";
+  strings.errorRequestRejected = "라이선스 서버가 요청을 거부했습니다.";
   strings.errorInvalidResponse = "라이선스 서버가 유효하지 않은 응답을 반환했습니다.";
   strings.errorInvalidSignature = "저장된 라이선스 서명이 유효하지 않습니다.";
   strings.errorInvalidCache = "저장된 라이선스 파일이 유효하지 않습니다.";
@@ -496,8 +514,13 @@ std::string licenseActivationErrorMessage(
       return strings.errorNotFound;
     case ErrorCode::ProductMismatch:
       return strings.errorProductMismatch;
+    case ErrorCode::TrialNotAvailable:
+    case ErrorCode::TrialExpired:
+      break;
     case ErrorCode::NetworkError:
       return strings.errorNetwork;
+    case ErrorCode::RequestRejected:
+      return strings.errorRequestRejected;
     case ErrorCode::InvalidResponse:
       return strings.errorInvalidResponse;
     case ErrorCode::InvalidSignature:

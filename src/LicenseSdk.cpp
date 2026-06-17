@@ -1,5 +1,7 @@
 #include <otomarket/license/LicenseSdk.h>
 
+#include "LicenseInternal.h"
+
 #include <algorithm>
 #include <array>
 #include <cctype>
@@ -29,301 +31,7 @@ extern "C" {
 namespace otomarket::license {
 namespace {
 
-constexpr std::array<unsigned char, 12> kEd25519SpkiPrefix = {
-  0x30, 0x2a, 0x30, 0x05, 0x06, 0x03,
-  0x2b, 0x65, 0x70, 0x03, 0x21, 0x00
-};
-
-struct JsonValue {
-  enum class Type {
-    Null,
-    Bool,
-    Number,
-    String,
-    Object,
-  };
-
-  Type type = Type::Null;
-  bool boolValue = false;
-  double numberValue = 0;
-  std::string stringValue;
-  std::map<std::string, JsonValue> objectValue;
-};
-
-class JsonParser {
-public:
-  explicit JsonParser(const std::string& source)
-    : source_(source) {}
-
-  JsonValue parse() {
-    skipWhitespace();
-    JsonValue value = parseValue();
-    skipWhitespace();
-
-    if (position_ != source_.size()) {
-      throw std::runtime_error("Unexpected trailing JSON input.");
-    }
-
-    return value;
-  }
-
-private:
-  JsonValue parseValue() {
-    skipWhitespace();
-
-    if (position_ >= source_.size()) {
-      throw std::runtime_error("Unexpected end of JSON input.");
-    }
-
-    const char ch = source_[position_];
-
-    if (ch == '{') {
-      return parseObject();
-    }
-
-    if (ch == '"') {
-      JsonValue value;
-      value.type = JsonValue::Type::String;
-      value.stringValue = parseString();
-      return value;
-    }
-
-    if (ch == 't') {
-      consumeLiteral("true");
-      JsonValue value;
-      value.type = JsonValue::Type::Bool;
-      value.boolValue = true;
-      return value;
-    }
-
-    if (ch == 'f') {
-      consumeLiteral("false");
-      JsonValue value;
-      value.type = JsonValue::Type::Bool;
-      value.boolValue = false;
-      return value;
-    }
-
-    if (ch == 'n') {
-      consumeLiteral("null");
-      return {};
-    }
-
-    if (ch == '-' || std::isdigit(static_cast<unsigned char>(ch)) != 0) {
-      return parseNumber();
-    }
-
-    throw std::runtime_error("Unsupported JSON value.");
-  }
-
-  JsonValue parseObject() {
-    JsonValue value;
-    value.type = JsonValue::Type::Object;
-    expect('{');
-    skipWhitespace();
-
-    if (peek('}')) {
-      ++position_;
-      return value;
-    }
-
-    while (true) {
-      skipWhitespace();
-      const std::string key = parseString();
-      skipWhitespace();
-      expect(':');
-      value.objectValue.emplace(key, parseValue());
-      skipWhitespace();
-
-      if (peek('}')) {
-        ++position_;
-        return value;
-      }
-
-      expect(',');
-    }
-  }
-
-  JsonValue parseNumber() {
-    const size_t start = position_;
-
-    if (peek('-')) {
-      ++position_;
-    }
-
-    while (position_ < source_.size() &&
-           std::isdigit(static_cast<unsigned char>(source_[position_])) != 0) {
-      ++position_;
-    }
-
-    if (peek('.')) {
-      ++position_;
-      while (position_ < source_.size() &&
-             std::isdigit(static_cast<unsigned char>(source_[position_])) != 0) {
-        ++position_;
-      }
-    }
-
-    if (peek('e') || peek('E')) {
-      ++position_;
-      if (peek('+') || peek('-')) {
-        ++position_;
-      }
-      while (position_ < source_.size() &&
-             std::isdigit(static_cast<unsigned char>(source_[position_])) != 0) {
-        ++position_;
-      }
-    }
-
-    JsonValue value;
-    value.type = JsonValue::Type::Number;
-    value.numberValue = std::stod(source_.substr(start, position_ - start));
-    return value;
-  }
-
-  std::string parseString() {
-    expect('"');
-    std::string result;
-
-    while (position_ < source_.size()) {
-      const char ch = source_[position_++];
-
-      if (ch == '"') {
-        return result;
-      }
-
-      if (ch != '\\') {
-        result.push_back(ch);
-        continue;
-      }
-
-      if (position_ >= source_.size()) {
-        throw std::runtime_error("Unexpected end of JSON escape.");
-      }
-
-      const char escaped = source_[position_++];
-
-      switch (escaped) {
-        case '"':
-        case '\\':
-        case '/':
-          result.push_back(escaped);
-          break;
-        case 'b':
-          result.push_back('\b');
-          break;
-        case 'f':
-          result.push_back('\f');
-          break;
-        case 'n':
-          result.push_back('\n');
-          break;
-        case 'r':
-          result.push_back('\r');
-          break;
-        case 't':
-          result.push_back('\t');
-          break;
-        case 'u':
-          appendUnicodeEscape(result);
-          break;
-        default:
-          throw std::runtime_error("Unsupported JSON escape.");
-      }
-    }
-
-    throw std::runtime_error("Unterminated JSON string.");
-  }
-
-  void appendUnicodeEscape(std::string& output) {
-    if (position_ + 4 > source_.size()) {
-      throw std::runtime_error("Invalid JSON unicode escape.");
-    }
-
-    unsigned int codepoint = 0;
-    for (int index = 0; index < 4; ++index) {
-      const char ch = source_[position_++];
-      codepoint <<= 4;
-
-      if (ch >= '0' && ch <= '9') {
-        codepoint += static_cast<unsigned int>(ch - '0');
-      } else if (ch >= 'a' && ch <= 'f') {
-        codepoint += static_cast<unsigned int>(ch - 'a' + 10);
-      } else if (ch >= 'A' && ch <= 'F') {
-        codepoint += static_cast<unsigned int>(ch - 'A' + 10);
-      } else {
-        throw std::runtime_error("Invalid JSON unicode escape.");
-      }
-    }
-
-    if (codepoint <= 0x7f) {
-      output.push_back(static_cast<char>(codepoint));
-    } else if (codepoint <= 0x7ff) {
-      output.push_back(static_cast<char>(0xc0 | ((codepoint >> 6) & 0x1f)));
-      output.push_back(static_cast<char>(0x80 | (codepoint & 0x3f)));
-    } else {
-      output.push_back(static_cast<char>(0xe0 | ((codepoint >> 12) & 0x0f)));
-      output.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3f)));
-      output.push_back(static_cast<char>(0x80 | (codepoint & 0x3f)));
-    }
-  }
-
-  void consumeLiteral(const char* literal) {
-    const size_t length = std::strlen(literal);
-
-    if (source_.compare(position_, length, literal) != 0) {
-      throw std::runtime_error("Invalid JSON literal.");
-    }
-
-    position_ += length;
-  }
-
-  void expect(char expected) {
-    if (position_ >= source_.size() || source_[position_] != expected) {
-      throw std::runtime_error("Unexpected JSON character.");
-    }
-    ++position_;
-  }
-
-  bool peek(char expected) const {
-    return position_ < source_.size() && source_[position_] == expected;
-  }
-
-  void skipWhitespace() {
-    while (position_ < source_.size() &&
-           std::isspace(static_cast<unsigned char>(source_[position_])) != 0) {
-      ++position_;
-    }
-  }
-
-  const std::string& source_;
-  size_t position_ = 0;
-};
-
-std::string trim(const std::string& value) {
-  size_t start = 0;
-  while (start < value.size() &&
-         std::isspace(static_cast<unsigned char>(value[start])) != 0) {
-    ++start;
-  }
-
-  size_t end = value.size();
-  while (end > start &&
-         std::isspace(static_cast<unsigned char>(value[end - 1])) != 0) {
-    --end;
-  }
-
-  return value.substr(start, end - start);
-}
-
-std::string replaceEscapedNewlines(std::string value) {
-  size_t position = 0;
-  while ((position = value.find("\\n", position)) != std::string::npos) {
-    value.replace(position, 2, "\n");
-    ++position;
-  }
-  return value;
-}
+using namespace detail;
 
 std::string jsonEscape(const std::string& value) {
   std::ostringstream output;
@@ -384,220 +92,6 @@ std::string makeJsonObject(const std::vector<std::pair<std::string, std::string>
 
   output << "}";
   return output.str();
-}
-
-const JsonValue* objectField(const JsonValue& value, const std::string& key) {
-  if (value.type != JsonValue::Type::Object) {
-    return nullptr;
-  }
-
-  const auto found = value.objectValue.find(key);
-  if (found == value.objectValue.end()) {
-    return nullptr;
-  }
-
-  return &found->second;
-}
-
-std::optional<std::string> stringField(const JsonValue& value, const std::string& key) {
-  const JsonValue* field = objectField(value, key);
-  if (field == nullptr || field->type != JsonValue::Type::String) {
-    return std::nullopt;
-  }
-  return field->stringValue;
-}
-
-std::optional<bool> boolField(const JsonValue& value, const std::string& key) {
-  const JsonValue* field = objectField(value, key);
-  if (field == nullptr || field->type != JsonValue::Type::Bool) {
-    return std::nullopt;
-  }
-  return field->boolValue;
-}
-
-std::optional<int> intField(const JsonValue& value, const std::string& key) {
-  const JsonValue* field = objectField(value, key);
-  if (field == nullptr || field->type != JsonValue::Type::Number) {
-    return std::nullopt;
-  }
-  return static_cast<int>(field->numberValue);
-}
-
-bool isNullField(const JsonValue& value, const std::string& key) {
-  const JsonValue* field = objectField(value, key);
-  return field != nullptr && field->type == JsonValue::Type::Null;
-}
-
-std::vector<std::string> splitToken(const std::string& token) {
-  std::vector<std::string> parts;
-  size_t start = 0;
-
-  while (true) {
-    const size_t dot = token.find('.', start);
-
-    if (dot == std::string::npos) {
-      parts.push_back(token.substr(start));
-      break;
-    }
-
-    parts.push_back(token.substr(start, dot - start));
-    start = dot + 1;
-  }
-
-  return parts;
-}
-
-int base64Value(char ch) {
-  if (ch >= 'A' && ch <= 'Z') {
-    return ch - 'A';
-  }
-  if (ch >= 'a' && ch <= 'z') {
-    return ch - 'a' + 26;
-  }
-  if (ch >= '0' && ch <= '9') {
-    return ch - '0' + 52;
-  }
-  if (ch == '+' || ch == '-') {
-    return 62;
-  }
-  if (ch == '/' || ch == '_') {
-    return 63;
-  }
-  return -1;
-}
-
-std::vector<unsigned char> base64Decode(const std::string& input) {
-  std::vector<unsigned char> output;
-  int value = 0;
-  int bits = -8;
-
-  for (const char ch : input) {
-    if (ch == '=') {
-      break;
-    }
-
-    if (std::isspace(static_cast<unsigned char>(ch)) != 0) {
-      continue;
-    }
-
-    const int decoded = base64Value(ch);
-    if (decoded < 0) {
-      throw std::runtime_error("Invalid base64 input.");
-    }
-
-    value = (value << 6) + decoded;
-    bits += 6;
-
-    if (bits >= 0) {
-      output.push_back(static_cast<unsigned char>((value >> bits) & 0xff));
-      bits -= 8;
-    }
-  }
-
-  return output;
-}
-
-bool isHexPublicKey(const std::string& value) {
-  if (value.size() != 64) {
-    return false;
-  }
-
-  return std::all_of(value.begin(), value.end(), [](char ch) {
-    return std::isxdigit(static_cast<unsigned char>(ch)) != 0;
-  });
-}
-
-std::array<unsigned char, 32> parseHexPublicKey(const std::string& value) {
-  std::array<unsigned char, 32> key{};
-
-  for (size_t index = 0; index < key.size(); ++index) {
-    const std::string byte = value.substr(index * 2, 2);
-    key[index] = static_cast<unsigned char>(std::stoul(byte, nullptr, 16));
-  }
-
-  return key;
-}
-
-std::array<unsigned char, 32> parsePublicKey(const std::string& publicKeyPem) {
-  std::string normalized = trim(replaceEscapedNewlines(publicKeyPem));
-
-  if (normalized.empty()) {
-    throw std::runtime_error("Public key is empty.");
-  }
-
-  if (isHexPublicKey(normalized)) {
-    return parseHexPublicKey(normalized);
-  }
-
-  std::string body;
-  std::istringstream input(normalized);
-  std::string line;
-
-  while (std::getline(input, line)) {
-    line = trim(line);
-    if (line.empty() ||
-        line.find("-----BEGIN") == 0 ||
-        line.find("-----END") == 0) {
-      continue;
-    }
-    body += line;
-  }
-
-  if (body.empty()) {
-    body = normalized;
-  }
-
-  const std::vector<unsigned char> der = base64Decode(body);
-
-  if (der.size() == 32) {
-    std::array<unsigned char, 32> raw{};
-    std::copy(der.begin(), der.end(), raw.begin());
-    return raw;
-  }
-
-  if (der.size() == kEd25519SpkiPrefix.size() + 32 &&
-      std::equal(kEd25519SpkiPrefix.begin(), kEd25519SpkiPrefix.end(), der.begin())) {
-    std::array<unsigned char, 32> raw{};
-    std::copy(der.end() - 32, der.end(), raw.begin());
-    return raw;
-  }
-
-  throw std::runtime_error("Public key is not an Ed25519 SPKI PEM or raw key.");
-}
-
-bool verifyEd25519Detached(
-  const std::string& message,
-  const std::vector<unsigned char>& signature,
-  const std::array<unsigned char, 32>& publicKey
-) {
-  if (signature.size() != crypto_sign_BYTES) {
-    return false;
-  }
-
-  std::vector<unsigned char> signedMessage(signature.size() + message.size());
-  std::copy(signature.begin(), signature.end(), signedMessage.begin());
-  std::copy(message.begin(), message.end(), signedMessage.begin() + signature.size());
-
-  std::vector<unsigned char> opened(signedMessage.size());
-  unsigned long long openedLength = 0;
-
-  const int result = crypto_sign_open(
-    opened.data(),
-    &openedLength,
-    signedMessage.data(),
-    static_cast<unsigned long long>(signedMessage.size()),
-    publicKey.data()
-  );
-
-  if (result != 0 || openedLength != message.size()) {
-    return false;
-  }
-
-  return std::equal(
-    opened.begin(),
-    opened.begin() + static_cast<std::ptrdiff_t>(openedLength),
-    message.begin()
-  );
 }
 
 std::string hexEncode(const unsigned char* bytes, size_t length) {
@@ -662,88 +156,6 @@ std::string hostName() {
 #endif
 }
 
-std::time_t timegmPortable(std::tm* time) {
-#ifdef _WIN32
-  return _mkgmtime(time);
-#else
-  return timegm(time);
-#endif
-}
-
-std::tm gmtimePortable(std::time_t value) {
-  std::tm result{};
-#ifdef _WIN32
-  gmtime_s(&result, &value);
-#else
-  gmtime_r(&value, &result);
-#endif
-  return result;
-}
-
-int parseDigits(const std::string& value, size_t position, size_t length) {
-  if (position + length > value.size()) {
-    throw std::runtime_error("Invalid ISO date.");
-  }
-
-  int parsed = 0;
-  for (size_t index = 0; index < length; ++index) {
-    const char ch = value[position + index];
-    if (std::isdigit(static_cast<unsigned char>(ch)) == 0) {
-      throw std::runtime_error("Invalid ISO date.");
-    }
-    parsed = parsed * 10 + (ch - '0');
-  }
-
-  return parsed;
-}
-
-std::chrono::system_clock::time_point parseIso8601(const std::string& value) {
-  if (value.size() < 20 ||
-      value[4] != '-' ||
-      value[7] != '-' ||
-      (value[10] != 'T' && value[10] != 't') ||
-      value[13] != ':' ||
-      value[16] != ':') {
-    throw std::runtime_error("Invalid ISO date.");
-  }
-
-  std::tm time{};
-  time.tm_year = parseDigits(value, 0, 4) - 1900;
-  time.tm_mon = parseDigits(value, 5, 2) - 1;
-  time.tm_mday = parseDigits(value, 8, 2);
-  time.tm_hour = parseDigits(value, 11, 2);
-  time.tm_min = parseDigits(value, 14, 2);
-  time.tm_sec = parseDigits(value, 17, 2);
-
-  size_t position = 19;
-  int milliseconds = 0;
-
-  if (position < value.size() && value[position] == '.') {
-    ++position;
-    int scale = 100;
-    while (position < value.size() &&
-           std::isdigit(static_cast<unsigned char>(value[position])) != 0) {
-      if (scale > 0) {
-        milliseconds += (value[position] - '0') * scale;
-        scale /= 10;
-      }
-      ++position;
-    }
-  }
-
-  if (position >= value.size() || value[position] != 'Z') {
-    throw std::runtime_error("Only UTC ISO dates are supported.");
-  }
-
-  const std::time_t seconds = timegmPortable(&time);
-  if (seconds == static_cast<std::time_t>(-1)) {
-    throw std::runtime_error("Invalid ISO date.");
-  }
-
-  return std::chrono::system_clock::from_time_t(seconds) +
-         std::chrono::milliseconds(milliseconds);
-}
-
 std::string formatIso8601(std::chrono::system_clock::time_point value) {
   const auto milliseconds = std::chrono::duration_cast<std::chrono::milliseconds>(
     value.time_since_epoch()
@@ -759,7 +171,7 @@ std::string formatIso8601(std::chrono::system_clock::time_point value) {
   return output.str();
 }
 
-ErrorCode apiErrorCode(const std::string& error) {
+std::optional<ErrorCode> knownApiErrorCode(const std::string& error) {
   if (error == "SEAT_LIMIT") {
     return ErrorCode::SeatLimit;
   }
@@ -775,7 +187,17 @@ ErrorCode apiErrorCode(const std::string& error) {
   if (error == "PRODUCT_MISMATCH") {
     return ErrorCode::ProductMismatch;
   }
-  return ErrorCode::InvalidResponse;
+  if (error == "TRIAL_NOT_AVAILABLE") {
+    return ErrorCode::TrialNotAvailable;
+  }
+  if (error == "TRIAL_EXPIRED") {
+    return ErrorCode::TrialExpired;
+  }
+  return std::nullopt;
+}
+
+ErrorCode apiErrorCode(const std::string& error) {
+  return knownApiErrorCode(error).value_or(ErrorCode::InvalidResponse);
 }
 
 LicenseState stateForError(ErrorCode error) {
@@ -790,8 +212,12 @@ LicenseState stateForError(ErrorCode error) {
       return LicenseState::NotFound;
     case ErrorCode::ProductMismatch:
       return LicenseState::ProductMismatch;
+    case ErrorCode::TrialExpired:
+      return LicenseState::Expired;
     case ErrorCode::NetworkError:
       return LicenseState::NetworkUnavailable;
+    case ErrorCode::RequestRejected:
+      return LicenseState::Error;
     case ErrorCode::InvalidSignature:
     case ErrorCode::InvalidCache:
     case ErrorCode::MachineMismatch:
@@ -837,6 +263,7 @@ std::optional<LicenseInfo> parseLicensePayload(
   info.buyerId = *buyerId;
   info.machineId = *machineId;
   info.maxActivations = *maxActivations;
+  info.isTrial = boolField(payload, "isTrial").value_or(false);
 
   try {
     info.issuedAt = parseIso8601(*issuedAt);
@@ -868,6 +295,245 @@ std::optional<JsonValue> parseJsonObject(const std::string& body) {
   } catch (...) {
     return std::nullopt;
   }
+}
+
+struct HttpFailureClassification {
+  ErrorCode error = ErrorCode::NetworkError;
+  LicenseState state = LicenseState::NetworkUnavailable;
+  std::string message;
+};
+
+std::string httpFailureMessage(
+  const std::string& operation,
+  int statusCode
+) {
+  return operation + " request failed with HTTP " + std::to_string(statusCode) + ".";
+}
+
+std::string rejectedRequestMessage(
+  const std::string& serverMessage,
+  int statusCode
+) {
+  return serverMessage + " (HTTP " + std::to_string(statusCode) + ").";
+}
+
+HttpFailureClassification classifyHttpFailure(
+  const HttpResponse& response,
+  const std::string& operation
+) {
+  HttpFailureClassification failure;
+  failure.message = httpFailureMessage(operation, response.statusCode);
+
+  const auto json = parseJsonObject(response.body);
+  if (!json) {
+    return failure;
+  }
+
+  auto code = stringField(*json, "code");
+  if (!code) {
+    code = stringField(*json, "error");
+  }
+
+  if (!code || code->empty()) {
+    return failure;
+  }
+
+  const auto serverError = stringField(*json, "error");
+  const std::string serverMessage =
+    serverError && !serverError->empty() ? *serverError : *code;
+
+  if (const auto knownError = knownApiErrorCode(*code)) {
+    failure.error = *knownError;
+    failure.state = stateForError(*knownError);
+    failure.message = serverMessage;
+    return failure;
+  }
+
+  failure.error = ErrorCode::RequestRejected;
+  failure.state = LicenseState::Error;
+  failure.message = rejectedRequestMessage(serverMessage, response.statusCode);
+  return failure;
+}
+
+constexpr const char* kMissingKidErrorMessage = "License token kid was not found in keyset.";
+
+struct KeysetCacheRecord {
+  std::map<std::string, std::string> keys;
+  std::chrono::system_clock::time_point fetchedAt{};
+};
+
+std::optional<std::map<std::string, std::string>> parseKeysetObject(const JsonValue& keysValue) {
+  if (keysValue.type != JsonValue::Type::Object) {
+    return std::nullopt;
+  }
+
+  std::map<std::string, std::string> keys;
+  for (const auto& entry : keysValue.objectValue) {
+    if (entry.first.empty() || entry.second.type != JsonValue::Type::String ||
+        entry.second.stringValue.empty()) {
+      return std::nullopt;
+    }
+    keys[entry.first] = entry.second.stringValue;
+  }
+  return keys;
+}
+
+std::optional<std::map<std::string, std::string>> parseRemoteKeyset(const std::string& body) {
+  const auto json = parseJsonObject(body);
+  if (!json) {
+    return std::nullopt;
+  }
+
+  const JsonValue* keysField = objectField(*json, "keys");
+  if (keysField == nullptr || keysField->type != JsonValue::Type::Array) {
+    return std::nullopt;
+  }
+
+  std::map<std::string, std::string> keys;
+  for (const auto& item : keysField->arrayValue) {
+    if (item.type != JsonValue::Type::Object) {
+      return std::nullopt;
+    }
+
+    const auto kid = stringField(item, "kid");
+    const auto publicKeyPem = stringField(item, "publicKeyPem");
+    if (!kid || kid->empty() || !publicKeyPem || publicKeyPem->empty()) {
+      return std::nullopt;
+    }
+
+    keys[*kid] = *publicKeyPem;
+  }
+
+  return keys;
+}
+
+std::filesystem::path keysetCachePathFor(const std::filesystem::path& cachePath) {
+  if (cachePath.empty()) {
+    return {};
+  }
+
+  auto path = cachePath;
+  path += ".keys";
+  return path;
+}
+
+std::optional<KeysetCacheRecord> parseKeysetCacheBody(const std::string& body) {
+  const auto json = parseJsonObject(body);
+  if (!json) {
+    return std::nullopt;
+  }
+
+  const JsonValue* keysField = objectField(*json, "keys");
+  if (keysField == nullptr) {
+    return std::nullopt;
+  }
+
+  auto keys = parseKeysetObject(*keysField);
+  if (!keys) {
+    return std::nullopt;
+  }
+
+  const JsonValue* fetchedAtField = objectField(*json, "fetchedAt");
+  if (fetchedAtField == nullptr || fetchedAtField->type != JsonValue::Type::Number ||
+      fetchedAtField->numberValue < 0) {
+    return std::nullopt;
+  }
+
+  KeysetCacheRecord record;
+  record.keys = std::move(*keys);
+  record.fetchedAt = std::chrono::system_clock::from_time_t(
+    static_cast<std::time_t>(fetchedAtField->numberValue)
+  );
+  return record;
+}
+
+std::optional<KeysetCacheRecord> readKeysetCacheFile(const std::filesystem::path& path) {
+  try {
+    if (path.empty()) {
+      return std::nullopt;
+    }
+
+    std::ifstream input(path);
+    if (!input) {
+      return std::nullopt;
+    }
+
+    std::ostringstream buffer;
+    buffer << input.rdbuf();
+    return parseKeysetCacheBody(buffer.str());
+  } catch (...) {
+    return std::nullopt;
+  }
+}
+
+bool writeKeysetCacheFile(
+  const std::filesystem::path& path,
+  const KeysetCacheRecord& record
+) {
+  try {
+    if (path.empty()) {
+      return false;
+    }
+
+    const auto parent = path.parent_path();
+    if (!parent.empty()) {
+      std::filesystem::create_directories(parent);
+    }
+
+    auto temporaryPath = path;
+    temporaryPath += ".tmp";
+
+    {
+      std::ofstream output(temporaryPath, std::ios::trunc);
+      if (!output) {
+        return false;
+      }
+
+      output << "{\"keys\":{";
+      bool first = true;
+      for (const auto& key : record.keys) {
+        if (!first) {
+          output << ",";
+        }
+        first = false;
+        output << quoteJson(key.first) << ":" << quoteJson(key.second);
+      }
+      output << "},\"fetchedAt\":"
+             << static_cast<long long>(std::chrono::system_clock::to_time_t(record.fetchedAt))
+             << "}";
+
+      if (!output) {
+        return false;
+      }
+    }
+
+    if (std::filesystem::exists(path)) {
+      std::filesystem::remove(path);
+    }
+
+    std::filesystem::rename(temporaryPath, path);
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
+
+void mergeKeyset(
+  std::map<std::string, std::string>& target,
+  const std::map<std::string, std::string>& source,
+  bool overwrite
+) {
+  for (const auto& entry : source) {
+    if (overwrite || target.find(entry.first) == target.end()) {
+      target[entry.first] = entry.second;
+    }
+  }
+}
+
+bool isMissingKidFailure(const VerifyTokenResult& result) {
+  return !result.ok &&
+         result.error == ErrorCode::InvalidSignature &&
+         result.errorMessage == kMissingKidErrorMessage;
 }
 
 bool httpOk(int statusCode) {
@@ -904,6 +570,10 @@ std::string toString(ErrorCode code) {
       return "NOT_FOUND";
     case ErrorCode::ProductMismatch:
       return "PRODUCT_MISMATCH";
+    case ErrorCode::TrialNotAvailable:
+      return "TRIAL_NOT_AVAILABLE";
+    case ErrorCode::TrialExpired:
+      return "TRIAL_EXPIRED";
     case ErrorCode::NetworkError:
       return "NETWORK_ERROR";
     case ErrorCode::InvalidResponse:
@@ -920,6 +590,8 @@ std::string toString(ErrorCode code) {
       return "MACHINE_MISMATCH";
     case ErrorCode::ConfigError:
       return "CONFIG_ERROR";
+    case ErrorCode::RequestRejected:
+      return "REQUEST_REJECTED";
   }
 
   return "UNKNOWN";
@@ -1040,7 +712,8 @@ VerifyTokenResult verifyLicenseToken(
   const std::string& publicKeyPem,
   const std::string& expectedProductId,
   const std::string& expectedMachineId,
-  std::optional<std::chrono::system_clock::time_point> now
+  std::optional<std::chrono::system_clock::time_point> now,
+  const std::map<std::string, std::string>& keyset
 ) {
   VerifyTokenResult result;
   const std::vector<std::string> parts = splitToken(token);
@@ -1054,7 +727,6 @@ VerifyTokenResult verifyLicenseToken(
   JsonValue header;
   std::string payloadJson;
   std::vector<unsigned char> signature;
-  std::array<unsigned char, 32> publicKey{};
 
   try {
     const std::vector<unsigned char> headerBytes = base64Decode(parts[0]);
@@ -1062,7 +734,6 @@ VerifyTokenResult verifyLicenseToken(
     signature = base64Decode(parts[2]);
     header = JsonParser(std::string(headerBytes.begin(), headerBytes.end())).parse();
     payloadJson = std::string(payloadBytes.begin(), payloadBytes.end());
-    publicKey = parsePublicKey(publicKeyPem);
   } catch (const std::exception& exception) {
     result.error = ErrorCode::InvalidSignature;
     result.errorMessage = exception.what();
@@ -1075,6 +746,33 @@ VerifyTokenResult verifyLicenseToken(
   if (!alg || *alg != "EdDSA" || (typ && *typ != "JWT")) {
     result.error = ErrorCode::InvalidSignature;
     result.errorMessage = "License token header is not EdDSA/JWT.";
+    return result;
+  }
+
+  const std::string* selectedPublicKeyPem = &publicKeyPem;
+  if (const JsonValue* kidField = objectField(header, "kid")) {
+    if (kidField->type != JsonValue::Type::String) {
+      result.error = ErrorCode::InvalidSignature;
+      result.errorMessage = "License token header kid must be a string.";
+      return result;
+    }
+
+    const auto found = keyset.find(kidField->stringValue);
+    if (found == keyset.end()) {
+      result.error = ErrorCode::InvalidSignature;
+      result.errorMessage = kMissingKidErrorMessage;
+      return result;
+    }
+
+    selectedPublicKeyPem = &found->second;
+  }
+
+  std::array<unsigned char, 32> publicKey{};
+  try {
+    publicKey = parsePublicKey(*selectedPublicKeyPem);
+  } catch (const std::exception& exception) {
+    result.error = ErrorCode::InvalidSignature;
+    result.errorMessage = exception.what();
     return result;
   }
 
@@ -1107,6 +805,12 @@ VerifyTokenResult verifyLicenseToken(
     return result;
   }
 
+  if (now && license->issuedAt > *now + std::chrono::hours(24)) {
+    result.error = ErrorCode::InvalidSignature;
+    result.errorMessage = "License token issuedAt is too far in the future.";
+    return result;
+  }
+
   if (now && license->expiresAt && *license->expiresAt <= *now) {
     result.error = ErrorCode::Expired;
     result.errorMessage = "License token is expired.";
@@ -1125,6 +829,7 @@ Client::Client(Config config)
       return std::chrono::system_clock::now();
     };
   }
+  loadKeysetCache();
 }
 
 ActivateResult Client::otoActivate(
@@ -1167,9 +872,10 @@ ActivateResult Client::otoActivate(
   }
 
   if (!httpOk(response.statusCode)) {
-    result.error = ErrorCode::NetworkError;
-    result.errorMessage = "Activation request failed with HTTP " + std::to_string(response.statusCode) + ".";
-    setState(LicenseState::NetworkUnavailable, result.error);
+    const auto failure = classifyHttpFailure(response, "Activation");
+    result.error = failure.error;
+    result.errorMessage = failure.message;
+    setState(failure.state, result.error);
     return result;
   }
 
@@ -1205,7 +911,12 @@ ActivateResult Client::otoActivate(
     return result;
   }
 
-  auto verified = verifyLicenseToken(*licenseToken, config_.publicKeyPem, productId, machineId, now());
+  auto verified = verifyTokenWithKeysetRefresh(
+    *licenseToken,
+    productId,
+    machineId,
+    now()
+  );
   if (!verified.ok || !verified.license) {
     result.error = verified.error;
     result.errorMessage = verified.errorMessage;
@@ -1234,6 +945,113 @@ ActivateResult Client::otoActivate(
   result.expiresAt = verified.license->expiresAt;
   cachedLicense_ = verified.license;
   setState(LicenseState::Licensed);
+  refreshKeysetIfDue();
+  return result;
+}
+
+ActivateResult Client::otoStartTrial(const std::string& productId) {
+  ActivateResult result;
+
+  if (productId.empty() || config_.baseUrl.empty() || !config_.http) {
+    result.error = ErrorCode::ConfigError;
+    result.errorMessage = "productId, baseUrl, and http transport are required.";
+    setState(LicenseState::Error, result.error);
+    return result;
+  }
+
+  const std::string machineId = machineIdForProduct(productId);
+  const std::string body = makeJsonObject({
+    {"productKey", quoteJson(productId)},
+    {"machineId", quoteJson(machineId)},
+  });
+
+  HttpResponse response;
+  try {
+    response = config_.http->postJson(endpointUrl("trial"), body, {
+      {"Content-Type", "application/json"},
+      {"Accept", "application/json"},
+    });
+  } catch (const std::exception& exception) {
+    result.error = ErrorCode::NetworkError;
+    result.errorMessage = exception.what();
+    setState(LicenseState::NetworkUnavailable, result.error);
+    return result;
+  }
+
+  if (!httpOk(response.statusCode)) {
+    const auto failure = classifyHttpFailure(response, "Trial");
+    result.error = failure.error;
+    result.errorMessage = failure.message;
+    setState(failure.state, result.error);
+    return result;
+  }
+
+  const auto json = parseJsonObject(response.body);
+  if (!json) {
+    result.error = ErrorCode::InvalidResponse;
+    result.errorMessage = "Trial response was not valid JSON.";
+    setState(LicenseState::Error, result.error);
+    return result;
+  }
+
+  const auto ok = boolField(*json, "ok");
+  if (!ok) {
+    result.error = ErrorCode::InvalidResponse;
+    result.errorMessage = "Trial response omitted ok.";
+    setState(LicenseState::Error, result.error);
+    return result;
+  }
+
+  if (!*ok) {
+    const auto error = stringField(*json, "error").value_or("INVALID_RESPONSE");
+    result.error = apiErrorCode(error);
+    result.errorMessage = error;
+    setState(stateForError(result.error), result.error);
+    return result;
+  }
+
+  const auto licenseToken = stringField(*json, "license");
+  if (!licenseToken) {
+    result.error = ErrorCode::InvalidResponse;
+    result.errorMessage = "Trial response omitted license.";
+    setState(LicenseState::Error, result.error);
+    return result;
+  }
+
+  auto verified = verifyTokenWithKeysetRefresh(
+    *licenseToken,
+    productId,
+    machineId,
+    now()
+  );
+  if (!verified.ok || !verified.license) {
+    result.error = verified.error;
+    result.errorMessage = verified.errorMessage;
+    setState(stateForError(result.error), result.error);
+    return result;
+  }
+
+  CacheRecord cache;
+  cache.productId = productId;
+  cache.machineId = machineId;
+  cache.licenseToken = *licenseToken;
+
+  std::string cacheMessage;
+  if (!writeCache(cache, cacheMessage)) {
+    result.error = ErrorCode::CacheIoError;
+    result.errorMessage = cacheMessage;
+    setState(LicenseState::Error, result.error);
+    return result;
+  }
+
+  result.ok = true;
+  result.licenseToken = *licenseToken;
+  result.seatsUsed = intField(*json, "seatsUsed").value_or(0);
+  result.maxActivations = intField(*json, "maxActivations").value_or(verified.license->maxActivations);
+  result.expiresAt = verified.license->expiresAt;
+  cachedLicense_ = verified.license;
+  setState(LicenseState::Licensed);
+  refreshKeysetIfDue();
   return result;
 }
 
@@ -1250,13 +1068,13 @@ bool Client::otoIsLicensed() {
 
   const std::string expectedProductId =
     config_.expectedProductId.empty() ? cache->productId : config_.expectedProductId;
+  const auto currentTime = now();
 
-  auto verified = verifyLicenseToken(
+  auto verified = verifyTokenWithKeysetRefresh(
     cache->licenseToken,
-    config_.publicKeyPem,
     expectedProductId,
     cache->machineId,
-    now()
+    currentTime
   );
 
   if (!verified.ok || !verified.license) {
@@ -1266,14 +1084,17 @@ bool Client::otoIsLicensed() {
   }
 
   cachedLicense_ = verified.license;
-  const auto currentTime = now();
+  const auto effectiveVerifyAfter = std::min(
+    verified.license->verifyAfter,
+    verified.license->issuedAt + config_.maxOffline
+  );
 
   if (verified.license->expiresAt && *verified.license->expiresAt <= currentTime) {
     setState(LicenseState::Expired, ErrorCode::Expired);
     return false;
   }
 
-  if (currentTime < verified.license->verifyAfter) {
+  if (currentTime < effectiveVerifyAfter) {
     setState(LicenseState::Licensed);
     return true;
   }
@@ -1288,7 +1109,7 @@ bool Client::otoIsLicensed() {
   }
 
   if (lastError_ == ErrorCode::NetworkError) {
-    const auto graceDeadline = verified.license->verifyAfter + config_.verifyRetryGrace;
+    const auto graceDeadline = effectiveVerifyAfter + config_.verifyRetryGrace;
 
     if (currentTime <= graceDeadline) {
       setState(LicenseState::LicensedOfflineGrace, ErrorCode::None);
@@ -1340,9 +1161,10 @@ DeactivateResult Client::otoDeactivate() {
   }
 
   if (!httpOk(response.statusCode)) {
-    result.error = ErrorCode::NetworkError;
-    result.errorMessage = "Deactivate request failed with HTTP " + std::to_string(response.statusCode) + ".";
-    setState(LicenseState::NetworkUnavailable, result.error);
+    const auto failure = classifyHttpFailure(response, "Deactivate");
+    result.error = failure.error;
+    result.errorMessage = failure.message;
+    setState(failure.state, result.error);
     return result;
   }
 
@@ -1413,6 +1235,106 @@ std::chrono::system_clock::time_point Client::now() const {
 
 std::string Client::endpointUrl(const std::string& action) const {
   return trimTrailingSlash(config_.baseUrl) + "/" + action;
+}
+
+void Client::loadKeysetCache() {
+  const auto cache = readKeysetCacheFile(keysetCachePathFor(config_.cachePath));
+  if (!cache) {
+    return;
+  }
+
+  mergeKeyset(config_.keyset, cache->keys, false);
+  keysetFetchedAt_ = cache->fetchedAt;
+}
+
+void Client::refreshKeyset() {
+  try {
+    if (!config_.http) {
+      return;
+    }
+
+    const std::string url = config_.keysUrl.empty()
+      ? (config_.baseUrl.empty() ? std::string{} : endpointUrl("keys"))
+      : config_.keysUrl;
+    if (url.empty()) {
+      return;
+    }
+
+    const HttpResponse response = config_.http->getJson(url, {
+      {"Accept", "application/json"},
+    });
+
+    if (response.statusCode != 200) {
+      return;
+    }
+
+    auto keys = parseRemoteKeyset(response.body);
+    if (!keys) {
+      return;
+    }
+
+    const auto fetchedAt = now();
+    mergeKeyset(config_.keyset, *keys, true);
+    keysetFetchedAt_ = fetchedAt;
+
+    if (!config_.cachePath.empty()) {
+      (void)writeKeysetCacheFile(
+        keysetCachePathFor(config_.cachePath),
+        KeysetCacheRecord{*keys, fetchedAt}
+      );
+    }
+  } catch (...) {
+  }
+}
+
+void Client::refreshKeysetIfDue() {
+  loadKeysetCache();
+
+  if (!keysetFetchedAt_) {
+    refreshKeyset();
+    return;
+  }
+
+  if (config_.keysetTtl <= std::chrono::seconds::zero()) {
+    refreshKeyset();
+    return;
+  }
+
+  if (now() - *keysetFetchedAt_ >= config_.keysetTtl) {
+    refreshKeyset();
+  }
+}
+
+VerifyTokenResult Client::verifyTokenWithKeysetRefresh(
+  const std::string& token,
+  const std::string& expectedProductId,
+  const std::string& expectedMachineId,
+  std::chrono::system_clock::time_point currentTime
+) {
+  loadKeysetCache();
+
+  auto verified = verifyLicenseToken(
+    token,
+    config_.publicKeyPem,
+    expectedProductId,
+    expectedMachineId,
+    currentTime,
+    config_.keyset
+  );
+
+  if (!isMissingKidFailure(verified)) {
+    return verified;
+  }
+
+  refreshKeyset();
+  return verifyLicenseToken(
+    token,
+    config_.publicKeyPem,
+    expectedProductId,
+    expectedMachineId,
+    currentTime,
+    config_.keyset
+  );
 }
 
 std::optional<Client::CacheRecord> Client::readCache(ErrorCode& error, std::string& message) const {
@@ -1547,7 +1469,8 @@ bool Client::tryOnlineVerify(const CacheRecord& cache, LicenseInfo& license) {
   }
 
   if (!httpOk(response.statusCode)) {
-    setState(LicenseState::NetworkUnavailable, ErrorCode::NetworkError);
+    const auto failure = classifyHttpFailure(response, "Verify");
+    setState(failure.state, failure.error);
     return false;
   }
 
@@ -1575,7 +1498,12 @@ bool Client::tryOnlineVerify(const CacheRecord& cache, LicenseInfo& license) {
     return false;
   }
 
-  auto verified = verifyLicenseToken(*token, config_.publicKeyPem, cache.productId, cache.machineId, now());
+  auto verified = verifyTokenWithKeysetRefresh(
+    *token,
+    cache.productId,
+    cache.machineId,
+    now()
+  );
   if (!verified.ok || !verified.license) {
     setState(stateForError(verified.error), verified.error);
     return false;
@@ -1590,6 +1518,7 @@ bool Client::tryOnlineVerify(const CacheRecord& cache, LicenseInfo& license) {
   }
 
   license = *verified.license;
+  refreshKeysetIfDue();
   return true;
 }
 

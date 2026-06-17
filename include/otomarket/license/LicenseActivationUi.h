@@ -13,6 +13,7 @@ struct LicenseActivationStrings {
   std::string licenseKeyPlaceholder = "Enter license key";
   std::string activateButton = "Activate";
   std::string deactivateButton = "Deactivate";
+  std::string trialButton = "Start free trial";
   std::string checkingStatus = "Checking license...";
   std::string activatingStatus = "Activating...";
   std::string deactivatingStatus = "Deactivating...";
@@ -40,6 +41,7 @@ struct LicenseActivationStrings {
   std::string errorNotFound = "License key was not found.";
   std::string errorProductMismatch = "This license is for a different product.";
   std::string errorNetwork = "Could not reach the license server. Check your connection and try again.";
+  std::string errorRequestRejected = "The license server rejected the request.";
   std::string errorInvalidResponse = "The license server returned an invalid response.";
   std::string errorInvalidSignature = "The saved license signature is invalid.";
   std::string errorInvalidCache = "The saved license file is invalid.";
