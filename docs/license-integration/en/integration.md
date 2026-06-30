@@ -170,3 +170,41 @@ The public key is not secret and is safe to embed in the plugin. Never embed, di
 Pass only the public key to `Config.publicKeyPem`. Never embed or display `LICENSE_SIGNING_PRIVATE_KEY`.
 
 Even when OtoMarket uses per-creator signing keys (`kid` tokens), **the SDK fetches the public keyset from `…/keys` automatically**, so you only need to configure `publicKeyPem`. See "Public keyset" in the [glossary](glossary.md).
+
+## Removing Or Disabling The SDK Later
+
+The SDK only **verifies signed licenses** — it does **not** encrypt or lock your packs / audio content. So you can remove it after integrating, and **your packs still load fine** without it (you just stop checking licenses). OtoMarket licensing is designed as a **lightweight deterrent** (friction, revocation, seat limits), not unbreakable DRM, so you are never locked in.
+
+- **What changes when you remove it**: that build no longer checks trial expiry, seat limits, or revocation, so it runs unrestricted.
+- **Builds you already shipped**: they keep checking (the SDK is still compiled in). Removal only affects the next build you ship — you cannot retroactively disable copies users already have.
+- **No server-side lock**: you simply stop calling `…/api/license/v1` (`/me`, activate).
+
+### Recommended: make it toggleable with a build flag
+
+Instead of deleting the code, wrap the verification in a compile-time flag so you can include/exclude it from build settings alone (no need to rip code out each time).
+
+```cpp
+#ifdef OTOMARKET_LICENSE_ENABLED
+  otomarket::license::Config config;
+  config.baseUrl = "https://otomarket.jp/api/license/v1";
+  config.publicKeyPem = kPublicKeyPem;
+  config.expectedProductId = kProductKey;
+  config.cachePath = otomarket::license::defaultCachePath("YourPluginName");
+  config.http = std::make_shared<otomarket::license::JuceHttpTransport>();
+  // ... activation / verification ...
+#endif
+```
+
+```cmake
+option(OTOMARKET_LICENSE_ENABLED "Enable OtoMarket license checks" ON)
+if (OTOMARKET_LICENSE_ENABLED)
+  target_compile_definitions(YourPlugin PRIVATE OTOMARKET_LICENSE_ENABLED=1)
+  # link the OtoMarket license SDK here
+endif()
+```
+
+Building with `-DOTOMARKET_LICENSE_ENABLED=OFF` produces a build without the SDK.
+
+### If you only want something lighter
+
+Instead of removing it entirely, you can **drop to a lighter integration level** (for example [Level 0](lv0.md), which uses only a signed license file). See the [overview](overview.md) for how the levels differ.

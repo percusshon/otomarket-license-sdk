@@ -168,3 +168,41 @@ config.http = std::make_shared<otomarket::license::JuceHttpTransport>();
 `Config.publicKeyPem` には公開鍵のみを渡します。`LICENSE_SIGNING_PRIVATE_KEY` は絶対に埋め込み・表示しません。
 
 OtoMarket がクリエイター別の署名鍵（`kid` 付きトークン）を使う場合でも、**SDK が公開鍵セットを `…/keys` から自動取得**するので、設定は `publicKeyPem` を渡すだけで済みます（詳細は[用語集](glossary.md)の「公開鍵セット」を参照）。
+
+## 後から外す・無効化する（着脱できます）
+
+SDK は「署名付きライセンスを検証する」ための部品で、**パックや音源データを暗号化してロックするものではありません**。そのため、一度組み込んだ後でも外せますし、外しても**パック自体は問題なく読み込めます**（ライセンス確認をしなくなるだけです）。OtoMarket のライセンスは「破られない暗号」ではなく、摩擦・失効・台数制限による**軽い抑止**として設計されているため、利用側がロックインされることはありません。
+
+- **外すと変わること**: そのビルドではトライアル期限・認証台数・失効などの確認が無くなり、無制限に動作します。
+- **すでに配布済みのビルド**: SDK を含んだまま動き続けます。外す効果は次に出すビルドからで、過去に配ったコピーを後から無効化することはできません。
+- **サーバ側のロックはありません**: `…/api/license/v1`（`/me` や activate）を呼ばなくなるだけです。
+
+### おすすめ: ビルドフラグで着脱できるようにする
+
+完全にコードを削除する代わりに、コンパイル時のフラグで検証処理を囲っておくと、含める／外すをビルド設定だけで切り替えられます（毎回コードを削らずに済みます）。
+
+```cpp
+#ifdef OTOMARKET_LICENSE_ENABLED
+  otomarket::license::Config config;
+  config.baseUrl = "https://otomarket.jp/api/license/v1";
+  config.publicKeyPem = kPublicKeyPem;
+  config.expectedProductId = kProductKey;
+  config.cachePath = otomarket::license::defaultCachePath("YourPluginName");
+  config.http = std::make_shared<otomarket::license::JuceHttpTransport>();
+  // ... activation / verification ...
+#endif
+```
+
+```cmake
+option(OTOMARKET_LICENSE_ENABLED "Enable OtoMarket license checks" ON)
+if (OTOMARKET_LICENSE_ENABLED)
+  target_compile_definitions(YourPlugin PRIVATE OTOMARKET_LICENSE_ENABLED=1)
+  # ここで OtoMarket license SDK をリンクする
+endif()
+```
+
+`-DOTOMARKET_LICENSE_ENABLED=OFF` でビルドすれば、SDK 無しのビルドが作れます。
+
+### もっと軽くしたい場合
+
+完全に外す以外に、**より軽い連携レベルに下げる**選択もできます（例: 署名付きライセンスファイルだけを使う [Level 0](lv0.md)）。レベルの違いは[概要](overview.md)を参照してください。

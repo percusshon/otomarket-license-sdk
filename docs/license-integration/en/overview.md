@@ -34,9 +34,9 @@ API** from any language.
   down) only requires Ed25519 signature verification in your language — a
   standard, widely available capability.
 
-**OtoRig packs**
+**Amplarium packs**
 
-In the OtoRig ecosystem the **host (OtoRig Player) integrates the SDK once and
+In the Amplarium ecosystem the **host (Amplarium Player) integrates the SDK once and
 checks every pack's license**, so pack creators do not implement licensing
 themselves.
 
@@ -86,6 +86,11 @@ web). See its [`README.md`](../../../packages/license-sdk-js/README.md) for usag
 
 Start with the [SDK quickstart](./quickstart.md) if you want to activate a
 sandbox license before wiring a real product.
+
+You can remove the SDK later even after integrating it. It does not
+encrypt-lock your content, so your packs still load without it (you just stop
+checking licenses). See "Removing or disabling the SDK later" in the
+[SDK integration guide](./integration.md).
 
 ## Sandbox Test Keys
 

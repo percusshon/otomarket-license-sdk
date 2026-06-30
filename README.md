@@ -1,6 +1,6 @@
 # OtoMarket License SDK for C++
 
-OtoRig / DrumLoom などの JUCE / VST3 / AU 製品に、OtoMarket の
+Amplarium / DrumLoom などの JUCE / VST3 / AU 製品に、OtoMarket の
 `/api/license/v1/activate|verify|deactivate` を数行で組み込むための
 ドロップイン SDK です。
 
@@ -128,7 +128,7 @@ config.baseUrl = "https://staging.example.test/api/license/v1";
 if (const char* publicKey = std::getenv("LICENSE_SIGNING_PUBLIC_KEY")) {
   config.publicKeyPem = publicKey;
 }
-config.cachePath = otomarket::license::defaultCachePath("OtoRig");
+config.cachePath = otomarket::license::defaultCachePath("Amplarium");
 config.http = std::make_shared<otomarket::license::JuceHttpTransport>();
 
 otomarket::license::Client licenses(config);
@@ -219,7 +219,7 @@ JUCE アプリでは `LicenseActivationPanel` を既存の設定画面やウィ�
 #include <otomarket/license/LicenseActivationPanel.h>
 
 otomarket::license::LicenseActivationPanelOptions options;
-options.productId = "otorig-product-id";
+options.productId = "amplarium-product-id";
 options.machineName = "Studio Mac";
 options.strings = otomarket::license::japaneseLicenseActivationStrings();
 
@@ -322,7 +322,7 @@ config.machineFingerprint = "your-stable-local-fingerprint";
 config.machineId = "prehashed-machine-id";
 ```
 
-## OtoRig / DrumLoom 組み込み雛形
+## Amplarium / DrumLoom 組み込み雛形
 
 ```cpp
 class LicenseService {
@@ -335,7 +335,7 @@ public:
   }
 
   otomarket::license::ActivateResult activate(const std::string& key) {
-    return client_.otoActivate("otorig-product-id", key, "User machine");
+    return client_.otoActivate("amplarium-product-id", key, "User machine");
   }
 
   otomarket::license::DeactivateResult deactivate() {
@@ -347,7 +347,7 @@ private:
 };
 ```
 
-OtoRig / DrumLoom では、既存 UI に独自のキー入力欄を置く場合は上記 3 関数を
+Amplarium / DrumLoom では、既存 UI に独自のキー入力欄を置く場合は上記 3 関数を
 呼びます。既製 UI でよい場合は `examples/StandaloneLicensePanelExample.cpp` と
 同じ形で `LicenseActivationPanel` を設定画面に埋め込んでください。
 

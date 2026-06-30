@@ -21,9 +21,9 @@ OtoMarket は **あなた自身のプラグインやアプリのライセンス�
 - **「ライセンス API（REST/JSON）」は、HTTP を叩けるどの言語でも**使えます。C++/JUCE 以外は SDK 不要で、この API を直接呼べば組み込めます（→ [REST API ガイド](./rest-api.md)）。
 - オンライン認証（毎回 API に確認）なら暗号処理は不要です。**オフライン検証**（API が落ちていても署名済みライセンスをローカル確認）をする場合だけ、その言語に **Ed25519 の署名検証**が必要です（ほぼ全ての言語に標準/定番ライブラリがあります）。
 
-**OtoRig のパック**
+**Amplarium のパック**
 
-OtoRig では **ホスト（OtoRig Player）が SDK を一度だけ組み込み、各パックのライセンスをまとめて検証**します。そのため、パック作者がライセンス処理を実装する必要はありません。
+Amplarium では **ホスト（Amplarium Player）が SDK を一度だけ組み込み、各パックのライセンスをまとめて検証**します。そのため、パック作者がライセンス処理を実装する必要はありません。
 
 ## クリエイターが選ぶ方式
 
@@ -61,6 +61,8 @@ JavaScript/TypeScript SDK は
 [`packages/license-sdk-js`](../../../packages/license-sdk-js)（Node・Electron・Web）にあります。インストールと使い方は [`README.md`](../../../packages/license-sdk-js/README.md) を参照してください。
 
 実際の商品に結線する前に sandbox ライセンスを activation したい場合は、まず [SDK クイックスタート](./quickstart.md) から始めてください。
+
+SDK は一度組み込んだ後でも外せます。コンテンツを暗号化ロックする仕組みではないため、外してもパックは読み込めます（ライセンス確認をしなくなるだけ）。着脱の方法は [SDK 組み込みガイド](./integration.md) の「後から外す・無効化する」を参照してください。
 
 ## Sandbox テストキー
 
