@@ -1,6 +1,6 @@
 # OtoMarket License SDK for C++
 
-Amplarium / DrumLoom などの JUCE / VST3 / AU 製品に、OtoMarket の
+Amplarium / DrumRoom などの JUCE / VST3 / AU 製品に、OtoMarket の
 `/api/license/v1/activate|verify|deactivate` を数行で組み込むための
 ドロップイン SDK です。
 
@@ -66,7 +66,7 @@ include(FetchContent)
 FetchContent_Declare(
   otomarket_license_sdk
   GIT_REPOSITORY https://github.com/percusshon/otomarket-license-sdk.git
-  GIT_TAG v1.2.0
+  GIT_TAG v1.2.1
 )
 
 FetchContent_MakeAvailable(otomarket_license_sdk)
@@ -337,7 +337,7 @@ config.machineFingerprint = "your-stable-local-fingerprint";
 config.machineId = "prehashed-machine-id";
 ```
 
-## Amplarium / DrumLoom 組み込み雛形
+## Amplarium / DrumRoom 組み込み雛形
 
 ```cpp
 class LicenseService {
@@ -362,7 +362,7 @@ private:
 };
 ```
 
-Amplarium / DrumLoom では、既存 UI に独自のキー入力欄を置く場合は上記 3 関数を
+Amplarium / DrumRoom では、既存 UI に独自のキー入力欄を置く場合は上記 3 関数を
 呼びます。既製 UI でよい場合は `examples/StandaloneLicensePanelExample.cpp` と
 同じ形で `LicenseActivationPanel` を設定画面に埋め込んでください。
 

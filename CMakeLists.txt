@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 
 project(
   OtoMarketLicenseSdkCpp
-  VERSION 1.2.0
+  VERSION 1.2.1
   LANGUAGES C CXX
 )
 
@@ -29,6 +29,16 @@ add_library(otomarket_license_sdk STATIC
 
 add_library(otomarket::license_sdk ALIAS otomarket_license_sdk)
 set_target_properties(otomarket_license_sdk PROPERTIES EXPORT_NAME license_sdk)
+
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+  # Upstream TweetNaCl contains negative-value left shifts that are undefined in C,
+  # despite their historically consistent behavior in commonly used environments.
+  # Exclude only the vendored C source; all SDK-owned sources remain instrumented.
+  set_source_files_properties(
+    vendor/tweetnacl/tweetnacl.c
+    PROPERTIES COMPILE_OPTIONS "-fno-sanitize=undefined"
+  )
+endif()
 
 target_compile_features(otomarket_license_sdk PUBLIC cxx_std_17)
 target_include_directories(otomarket_license_sdk
@@ -94,6 +104,7 @@ if(OTOMARKET_LICENSE_SDK_BUILD_TESTS)
   target_link_libraries(otomarket_license_sdk_tests PRIVATE otomarket_license_sdk)
   target_include_directories(otomarket_license_sdk_tests
     PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/src
       ${CMAKE_CURRENT_SOURCE_DIR}/vendor/tweetnacl
   )
 

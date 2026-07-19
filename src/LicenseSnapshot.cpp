@@ -37,10 +37,18 @@ std::optional<DecodedSnapshotJws> decodeSnapshotJws(
   const std::string& jws,
   SnapshotVerifyResult& result
 ) {
+  if (jws.size() > kMaxTokenEncodedSize) {
+    result = failure(
+      ErrorCode::InvalidSignature,
+      "License snapshot exceeds the maximum supported size."
+    );
+    return std::nullopt;
+  }
+
   DecodedSnapshotJws decoded;
   decoded.parts = splitToken(jws);
 
-  if (decoded.parts.size() != 3 ||
+  if (!tokenEncodedSizesAreValid(jws, decoded.parts) ||
       decoded.parts[0].empty() ||
       decoded.parts[1].empty() ||
       decoded.parts[2].empty()) {
@@ -642,6 +650,7 @@ PackAccess evaluatePack(
     }
 
     access.entitled = true;
+    access.accessAllowedNow = !entitlement.expiresAt || now < *entitlement.expiresAt;
     access.source = entitlement.source;
     access.expiresAt = entitlement.expiresAt;
     access.matchedProductId = entitlement.productId;
@@ -655,6 +664,7 @@ PackAccess evaluatePack(
     }
 
     access.entitled = true;
+    access.accessAllowedNow = now < trial.expiresAt;
     access.source = SnapshotSource::Free;
     access.expiresAt = trial.expiresAt;
     access.matchedProductId = trial.productId;

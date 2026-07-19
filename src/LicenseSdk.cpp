@@ -769,9 +769,16 @@ VerifyTokenResult verifyLicenseToken(
   const std::map<std::string, std::string>& keyset
 ) {
   VerifyTokenResult result;
+  if (token.size() > kMaxTokenEncodedSize) {
+    result.error = ErrorCode::InvalidSignature;
+    result.errorMessage = "License token exceeds the maximum supported size.";
+    return result;
+  }
+
   const std::vector<std::string> parts = splitToken(token);
 
-  if (parts.size() != 3 || parts[0].empty() || parts[1].empty() || parts[2].empty()) {
+  if (!tokenEncodedSizesAreValid(token, parts) ||
+      parts[0].empty() || parts[1].empty() || parts[2].empty()) {
     result.error = ErrorCode::InvalidSignature;
     result.errorMessage = "License token must use header.payload.signature format.";
     return result;

@@ -3,9 +3,12 @@
 #include <otomarket/license/LicenseSnapshot.h>
 #include <otomarket/license/Version.h>
 
+#include "LicenseInternal.h"
+
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdint>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -198,20 +201,21 @@ std::string base64Encode(const std::vector<unsigned char>& bytes) {
   static constexpr char kAlphabet[] =
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   std::string output;
-  int value = 0;
-  int bits = -6;
+  std::uint32_t value = 0;
+  int bits = 0;
 
   for (const unsigned char byte : bytes) {
-    value = (value << 8) + byte;
+    value = (value << 8) | static_cast<std::uint32_t>(byte);
     bits += 8;
-    while (bits >= 0) {
-      output.push_back(kAlphabet[(value >> bits) & 0x3f]);
+    while (bits >= 6) {
       bits -= 6;
+      output.push_back(kAlphabet[(value >> bits) & 0x3f]);
+      value = bits == 0 ? 0u : value & ((std::uint32_t{1} << bits) - 1u);
     }
   }
 
-  if (bits > -6) {
-    output.push_back(kAlphabet[((value << 8) >> (bits + 8)) & 0x3f]);
+  if (bits > 0) {
+    output.push_back(kAlphabet[(value << (6 - bits)) & 0x3f]);
   }
 
   while (output.size() % 4 != 0) {
@@ -1662,6 +1666,71 @@ void verifiesLicenseSnapshotKidKeyset() {
   require(noKidResult.ok, "snapshot without kid should use single-entry keyset");
 }
 
+void base64DecoderHandlesBoundaries() {
+  using otomarket::license::detail::base64Decode;
+
+  require(base64Decode("").empty(), "empty base64 should decode to empty output");
+  requireEqual(
+    base64Decode("TQ=="),
+    std::vector<unsigned char>{'M'},
+    "padded base64 decode mismatch"
+  );
+  requireEqual(
+    base64Decode("TQ"),
+    std::vector<unsigned char>{'M'},
+    "unpadded base64 decode mismatch"
+  );
+  requireEqual(
+    base64Decode("+/8="),
+    std::vector<unsigned char>({0xfb, 0xff}),
+    "standard base64 alphabet decode mismatch"
+  );
+  requireEqual(
+    base64Decode("-_8"),
+    std::vector<unsigned char>({0xfb, 0xff}),
+    "base64url alphabet decode mismatch"
+  );
+
+  bool invalidCharacterRejected = false;
+  try {
+    static_cast<void>(base64Decode("AA!A"));
+  } catch (const std::runtime_error&) {
+    invalidCharacterRejected = true;
+  }
+  require(invalidCharacterRejected, "invalid base64 character should be rejected");
+
+  bool oversizedInputRejected = false;
+  try {
+    static_cast<void>(base64Decode(std::string(
+      otomarket::license::detail::kMaxTokenEncodedSize + 1,
+      'A'
+    )));
+  } catch (const std::runtime_error&) {
+    oversizedInputRejected = true;
+  }
+  require(oversizedInputRejected, "oversized base64 input should be rejected");
+}
+
+void rejectsOversizedLicenseSnapshotSegments() {
+  const KeyPair keyPair = generateKeyPair();
+  const auto verify = [&](const std::string& token) {
+    const auto result = otomarket::license::verifyLicenseSnapshot(token, keyPair.publicKeyPem);
+    require(!result.ok, "oversized snapshot should fail verification");
+    requireEqual(result.error, ErrorCode::InvalidSignature, "oversized snapshot error mismatch");
+  };
+
+  verify(std::string(otomarket::license::detail::kMaxTokenEncodedSize + 1, 'A'));
+  verify(
+    std::string(otomarket::license::detail::kMaxTokenHeaderEncodedSize + 1, 'A') + ".A.A"
+  );
+  verify(
+    "A." + std::string(
+      otomarket::license::detail::kMaxTokenPayloadEncodedSize + 1,
+      'A'
+    ) + ".A"
+  );
+}
+
 void evaluatePackUsesSnapshotFacts() {
   const KeyPair keyPair = generateKeyPair();
   const auto verified = otomarket::license::verifyLicenseSnapshot(
@@ -1674,6 +1743,7 @@ void evaluatePackUsesSnapshotFacts() {
   const auto current = makeTime(2026, 6, 4, 12, 0, 0);
   const auto buyout = otomarket::license::evaluatePack(snapshot, "pack-buyout", current);
   require(buyout.entitled, "owned buyout pack should be entitled");
+  require(buyout.accessAllowedNow, "owned buyout pack should allow access now");
   requireEqual(buyout.source, SnapshotSource::Buyout, "buyout access source mismatch");
   require(!buyout.expiresAt.has_value(), "buyout access should be unlimited");
   require(buyout.snapshotFresh, "current snapshot should be fresh at iat boundary");
@@ -1683,17 +1753,20 @@ void evaluatePackUsesSnapshotFacts() {
 
   const auto missing = otomarket::license::evaluatePack(snapshot, "pack-missing", current);
   require(!missing.entitled, "missing pack should not be entitled");
+  require(!missing.accessAllowedNow, "missing pack should not allow access now");
   require(missing.snapshotFresh, "missing pack should still report snapshot freshness");
   require(missing.withinOfflineGrace, "missing pack should still report offline grace");
 
   const auto activeSub = otomarket::license::evaluatePack(snapshot, "pack-sub-active", current);
   require(activeSub.entitled, "active subscription pack should match");
+  require(activeSub.accessAllowedNow, "active subscription should allow access now");
   requireEqual(activeSub.source, SnapshotSource::Subscription, "active subscription source mismatch");
   require(activeSub.expiresAt.has_value(), "active subscription should expose expiresAt");
   require(*activeSub.expiresAt > current, "active subscription expiresAt should be in the future");
 
   const auto expiredSub = otomarket::license::evaluatePack(snapshot, "pack-sub-expired", current);
   require(expiredSub.entitled, "expired subscription pack should still report a signed match");
+  require(!expiredSub.accessAllowedNow, "expired subscription should not allow access now");
   require(expiredSub.expiresAt.has_value(), "expired subscription should expose expiresAt");
   require(*expiredSub.expiresAt < current, "expired subscription expiresAt should be in the past");
 
@@ -1703,12 +1776,14 @@ void evaluatePackUsesSnapshotFacts() {
 
   const auto activeTrial = otomarket::license::evaluatePack(snapshot, "pack-trial-active", current);
   require(activeTrial.entitled, "active trial pack should match");
+  require(activeTrial.accessAllowedNow, "active trial should allow access now");
   requireEqual(activeTrial.source, SnapshotSource::Free, "trial access source should use Free");
   require(activeTrial.expiresAt.has_value(), "active trial should expose expiresAt");
   require(*activeTrial.expiresAt > current, "active trial expiresAt should be in the future");
 
   const auto expiredTrial = otomarket::license::evaluatePack(snapshot, "pack-trial-expired", current);
   require(expiredTrial.entitled, "expired trial pack should still report a signed match");
+  require(!expiredTrial.accessAllowedNow, "expired trial should not allow access now");
   require(expiredTrial.expiresAt.has_value(), "expired trial should expose expiresAt");
   require(*expiredTrial.expiresAt < current, "expired trial expiresAt should be in the past");
 
@@ -1880,10 +1955,10 @@ void activationUiButtonStatesAreStable() {
 void versionMacrosMatchProjectVersion() {
   requireEqual(OTOMARKET_LICENSE_SDK_VERSION_MAJOR, 1, "major version mismatch");
   requireEqual(OTOMARKET_LICENSE_SDK_VERSION_MINOR, 2, "minor version mismatch");
-  requireEqual(OTOMARKET_LICENSE_SDK_VERSION_PATCH, 0, "patch version mismatch");
+  requireEqual(OTOMARKET_LICENSE_SDK_VERSION_PATCH, 1, "patch version mismatch");
   requireEqual(
     std::string(OTOMARKET_LICENSE_SDK_VERSION_STRING),
-    std::string("1.2.0"),
+    std::string("1.2.1"),
     "version string mismatch"
   );
 }
@@ -1934,6 +2009,8 @@ int main() {
     {"rejectsTamperedLicenseSnapshot", rejectsTamperedLicenseSnapshot},
     {"rejectsLicenseSnapshotSignedByAnotherKey", rejectsLicenseSnapshotSignedByAnotherKey},
     {"verifiesLicenseSnapshotKidKeyset", verifiesLicenseSnapshotKidKeyset},
+    {"base64DecoderHandlesBoundaries", base64DecoderHandlesBoundaries},
+    {"rejectsOversizedLicenseSnapshotSegments", rejectsOversizedLicenseSnapshotSegments},
     {"evaluatePackUsesSnapshotFacts", evaluatePackUsesSnapshotFacts},
     {"rejectsUnknownLicenseSnapshotSchemaVersion", rejectsUnknownLicenseSnapshotSchemaVersion},
     {"activationUiShowsLicensedDetails", activationUiShowsLicensedDetails},

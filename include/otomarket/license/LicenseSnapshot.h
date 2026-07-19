@@ -88,7 +88,11 @@ SnapshotVerifyResult verifyLicenseSnapshot(
 );
 
 struct PackAccess {
+  /** True when the pack matched an entry in the signed snapshot. This does not
+      indicate whether an expiring subscription or trial is currently usable. */
   bool entitled = false;
+  /** True when a matched entitlement or trial has not expired at `now`. */
+  bool accessAllowedNow = false;
   SnapshotSource source = SnapshotSource::Buyout;
   std::optional<std::chrono::system_clock::time_point> expiresAt;
   bool snapshotFresh = false;

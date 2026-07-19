@@ -4,6 +4,8 @@
 #include <array>
 #include <chrono>
 #include <cctype>
+#include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <ctime>
 #include <map>
@@ -18,6 +20,11 @@ extern "C" {
 }
 
 namespace otomarket::license::detail {
+
+inline constexpr size_t kMaxTokenEncodedSize = 64 * 1024;
+inline constexpr size_t kMaxTokenHeaderEncodedSize = 8 * 1024;
+inline constexpr size_t kMaxTokenPayloadEncodedSize = 48 * 1024;
+inline constexpr size_t kMaxTokenSignatureEncodedSize = 1024;
 
 inline constexpr std::array<unsigned char, 12> kEd25519SpkiPrefix = {
   0x30, 0x2a, 0x30, 0x05, 0x06, 0x03,
@@ -426,9 +433,13 @@ inline int base64Value(char ch) {
 }
 
 inline std::vector<unsigned char> base64Decode(const std::string& input) {
+  if (input.size() > kMaxTokenEncodedSize) {
+    throw std::runtime_error("Base64 input exceeds the maximum supported size.");
+  }
+
   std::vector<unsigned char> output;
-  int value = 0;
-  int bits = -8;
+  std::uint32_t value = 0;
+  int bits = 0;
 
   for (const char ch : input) {
     if (ch == '=') {
@@ -444,16 +455,28 @@ inline std::vector<unsigned char> base64Decode(const std::string& input) {
       throw std::runtime_error("Invalid base64 input.");
     }
 
-    value = (value << 6) + decoded;
+    value = (value << 6) | static_cast<std::uint32_t>(decoded);
     bits += 6;
 
-    if (bits >= 0) {
-      output.push_back(static_cast<unsigned char>((value >> bits) & 0xff));
+    if (bits >= 8) {
       bits -= 8;
+      output.push_back(static_cast<unsigned char>((value >> bits) & 0xff));
+      value = bits == 0 ? 0u : value & ((std::uint32_t{1} << bits) - 1u);
     }
   }
 
   return output;
+}
+
+inline bool tokenEncodedSizesAreValid(
+  const std::string& token,
+  const std::vector<std::string>& parts
+) {
+  return token.size() <= kMaxTokenEncodedSize &&
+         parts.size() == 3 &&
+         parts[0].size() <= kMaxTokenHeaderEncodedSize &&
+         parts[1].size() <= kMaxTokenPayloadEncodedSize &&
+         parts[2].size() <= kMaxTokenSignatureEncodedSize;
 }
 
 inline bool isHexPublicKey(const std::string& value) {
