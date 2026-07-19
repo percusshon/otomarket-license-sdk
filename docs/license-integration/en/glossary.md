@@ -73,9 +73,10 @@ A small signed file the server returns on activation. The app can check it
 
 OtoMarket may sign each creator's licenses with a different key, so that if one
 key ever leaks the impact is limited to that creator's products. Such tokens
-carry a `kid` (a key name tag). **The official SDKs handle this automatically** —
-configure `publicKeyPem` and the SDK fetches whatever public keys it needs from
-`…/keys`.
+carry a `kid` (a key name tag), and the SDK fetches the required public keys from
+`…/keys`. Only legacy tokens without `kid` use `publicKeyPem`; tokens with `kid`
+require a matching keyset entry. A fetched cache works offline, but the first
+fetch and the period immediately after key rotation require an online connection.
 
 ### Offline grace (`verifyAfter`)
 

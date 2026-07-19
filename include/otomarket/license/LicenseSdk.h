@@ -152,6 +152,8 @@ VerifyTokenResult verifyLicenseToken(
 
 class Client {
 public:
+  // Client instances are not thread-safe. Callers sharing an instance across
+  // threads must serialize calls. The bundled JUCE panel does this internally.
   explicit Client(Config config);
 
   ActivateResult otoActivate(

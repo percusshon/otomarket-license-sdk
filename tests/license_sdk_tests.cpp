@@ -18,6 +18,10 @@
 #include <string>
 #include <vector>
 
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
+
 extern "C" {
 #include "tweetnacl.h"
 }
@@ -1223,6 +1227,33 @@ void activateSendsProvidedMachineName() {
   );
 }
 
+void cacheWriteAtomicallyReplacesExistingFile() {
+  const KeyPair keyPair = generateKeyPair();
+  const auto cachePath = tempCachePath("atomic-cache-replace");
+  writeCache(cachePath, "old-product", "old-key", "old-machine", "old-token");
+
+  const std::string activationToken = licenseToken(keyPair, "product-1", "machine-1", kFutureIso);
+  auto http = std::make_shared<MockHttpTransport>();
+  http->handler = [&](const HttpRequest&) {
+    return HttpResponse{200, okActivateJson(activationToken)};
+  };
+
+  Client client(makeConfig(keyPair, cachePath, http));
+  const auto activated = client.otoActivate("product-1", "new-license-key");
+  require(activated.ok, "activation should replace existing cache");
+
+  std::ifstream input(cachePath);
+  std::ostringstream body;
+  body << input.rdbuf();
+  require(body.str().find("new-license-key") != std::string::npos, "replacement cache should contain new key");
+  require(body.str().find("old-key") == std::string::npos, "replacement cache should not contain old key");
+#ifndef _WIN32
+  struct stat status {};
+  require(::stat(cachePath.c_str(), &status) == 0, "cache stat should succeed");
+  requireEqual(status.st_mode & 0777, static_cast<mode_t>(0600), "cache mode should be 0600");
+#endif
+}
+
 void http400ApiErrorClassifiesAsRequestRejected() {
   const KeyPair keyPair = generateKeyPair();
   const auto cachePath = tempCachePath("http-400-request-rejected");
@@ -1466,6 +1497,40 @@ void parsesLicenseSnapshotWithoutPacks() {
   for (const auto& trial : result.snapshot->trials) {
     require(trial.packs.empty(), "missing trial packs should default empty");
   }
+}
+
+void parsesMembershipAndUnknownSnapshotSources() {
+  const KeyPair keyPair = generateKeyPair();
+  auto membershipPayload = snapshotPayloadJson();
+  const std::string buyoutSourceValue = "\"source\":\"buyout\"";
+  const auto buyoutSource = membershipPayload.find("\"source\":\"buyout\"");
+  require(buyoutSource != std::string::npos, "buyout source fixture missing");
+  membershipPayload.replace(buyoutSource, buyoutSourceValue.size(), "\"source\":\"membership\"");
+
+  auto membershipResult = otomarket::license::verifyLicenseSnapshot(
+    snapshotToken(keyPair, membershipPayload),
+    keyPair.publicKeyPem
+  );
+  require(membershipResult.ok && membershipResult.snapshot.has_value(), "membership snapshot should verify");
+  requireEqual(
+    membershipResult.snapshot->entitlements[0].source,
+    SnapshotSource::Membership,
+    "membership source mismatch"
+  );
+
+  auto unknownPayload = snapshotPayloadJson();
+  const std::string freeSourceValue = "\"source\":\"free\"";
+  const auto freeSource = unknownPayload.find("\"source\":\"free\"");
+  require(freeSource != std::string::npos, "free source fixture missing");
+  unknownPayload.replace(freeSource, freeSourceValue.size(), "\"source\":\"future_source\"");
+  auto unknownResult = otomarket::license::verifyLicenseSnapshot(
+    snapshotToken(keyPair, unknownPayload),
+    keyPair.publicKeyPem
+  );
+  require(unknownResult.ok && unknownResult.snapshot.has_value(), "unknown source should not reject snapshot");
+  requireEqual(unknownResult.snapshot->entitlements.size(), static_cast<size_t>(5), "other entitlements should survive");
+  requireEqual(unknownResult.snapshot->entitlements[1].source, SnapshotSource::Unknown, "unknown source mismatch");
+  requireEqual(unknownResult.snapshot->entitlements[0].source, SnapshotSource::Buyout, "known entitlement should survive");
 }
 
 void verifiesPackContentHashes() {
@@ -1814,11 +1879,11 @@ void activationUiButtonStatesAreStable() {
 
 void versionMacrosMatchProjectVersion() {
   requireEqual(OTOMARKET_LICENSE_SDK_VERSION_MAJOR, 1, "major version mismatch");
-  requireEqual(OTOMARKET_LICENSE_SDK_VERSION_MINOR, 1, "minor version mismatch");
+  requireEqual(OTOMARKET_LICENSE_SDK_VERSION_MINOR, 2, "minor version mismatch");
   requireEqual(OTOMARKET_LICENSE_SDK_VERSION_PATCH, 0, "patch version mismatch");
   requireEqual(
     std::string(OTOMARKET_LICENSE_SDK_VERSION_STRING),
-    std::string("1.1.0"),
+    std::string("1.2.0"),
     "version string mismatch"
   );
 }
@@ -1856,6 +1921,7 @@ int main() {
     {"activateVerifyDeactivateFlowUsesMockHttp", activateVerifyDeactivateFlowUsesMockHttp},
     {"activateOmitsEmptyMachineName", activateOmitsEmptyMachineName},
     {"activateSendsProvidedMachineName", activateSendsProvidedMachineName},
+    {"cacheWriteAtomicallyReplacesExistingFile", cacheWriteAtomicallyReplacesExistingFile},
     {"http400ApiErrorClassifiesAsRequestRejected", http400ApiErrorClassifiesAsRequestRejected},
     {"http409SeatLimitClassifiesAsSeatLimit", http409SeatLimitClassifiesAsSeatLimit},
     {"startTrialCachesTrialToken", startTrialCachesTrialToken},
@@ -1863,6 +1929,7 @@ int main() {
     {"verifiesGeneratedLicenseSnapshot", verifiesGeneratedLicenseSnapshot},
     {"parsesLicenseSnapshotPacks", parsesLicenseSnapshotPacks},
     {"parsesLicenseSnapshotWithoutPacks", parsesLicenseSnapshotWithoutPacks},
+    {"parsesMembershipAndUnknownSnapshotSources", parsesMembershipAndUnknownSnapshotSources},
     {"verifiesPackContentHashes", verifiesPackContentHashes},
     {"rejectsTamperedLicenseSnapshot", rejectsTamperedLicenseSnapshot},
     {"rejectsLicenseSnapshotSignedByAnotherKey", rejectsLicenseSnapshotSignedByAnotherKey},

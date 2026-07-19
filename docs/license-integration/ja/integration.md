@@ -167,7 +167,7 @@ config.http = std::make_shared<otomarket::license::JuceHttpTransport>();
 
 `Config.publicKeyPem` には公開鍵のみを渡します。`LICENSE_SIGNING_PRIVATE_KEY` は絶対に埋め込み・表示しません。
 
-OtoMarket がクリエイター別の署名鍵（`kid` 付きトークン）を使う場合でも、**SDK が公開鍵セットを `…/keys` から自動取得**するので、設定は `publicKeyPem` を渡すだけで済みます（詳細は[用語集](glossary.md)の「公開鍵セット」を参照）。
+OtoMarket がクリエイター別の署名鍵（`kid` 付きトークン）を使う場合、SDK は公開鍵セットを `…/keys` から自動取得します。`kid` 無しの旧トークンだけが `publicKeyPem` を使い、`kid` 付きトークンには keyset 内の一致する鍵が必須です（未知 `kid` は `publicKeyPem` にフォールバックしません）。取得済み keyset キャッシュがあればオフライン検証できますが、初回取得前や鍵ローテーション直後はオンライン接続が必要です（詳細は[用語集](glossary.md)の「公開鍵セット」を参照）。
 
 ## 後から外す・無効化する（着脱できます）
 

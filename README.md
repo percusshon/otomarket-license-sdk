@@ -7,7 +7,9 @@ Amplarium / DrumLoom などの JUCE / VST3 / AU 製品に、OtoMarket の
 ## できること
 
 - 初回オンライン activation
+- `otoStartTrial()` によるオンラインのトライアル開始
 - Ed25519 署名済みライセンストークンのオフライン検証
+- License Snapshot API による entitlement / pack / trial の署名済みスナップショット検証
 - `verifyAfter` 到来時のオンライン verify と短期 retry grace
 - 署名ライセンスキャッシュの保存/読込/削除
 - product ごとの hashed `machineId` 導出
@@ -64,7 +66,7 @@ include(FetchContent)
 FetchContent_Declare(
   otomarket_license_sdk
   GIT_REPOSITORY https://github.com/percusshon/otomarket-license-sdk.git
-  GIT_TAG v1.1.0
+  GIT_TAG v1.2.0
 )
 
 FetchContent_MakeAvailable(otomarket_license_sdk)
@@ -79,12 +81,15 @@ JUCE パネルも使う場合は `FetchContent_MakeAvailable` の前に
 
 インストール済み SDK を使う場合:
 
+公開リポジトリ直下では次のように実行します（monorepo 内では `-S .` を
+`-S packages/license-sdk-cpp` に、build path も任意の場所に読み替えてください）。
+
 ```bash
-cmake -S packages/license-sdk-cpp -B packages/license-sdk-cpp/build-install \
+cmake -S . -B build-install \
   -DOTOMARKET_LICENSE_SDK_BUILD_TESTS=OFF \
   -DCMAKE_INSTALL_PREFIX=/path/to/otomarket-license-sdk-install
-cmake --build packages/license-sdk-cpp/build-install
-cmake --install packages/license-sdk-cpp/build-install
+cmake --build build-install
+cmake --install build-install
 ```
 
 利用側:
@@ -99,7 +104,7 @@ target_link_libraries(YourPluginTarget PRIVATE otomarket::license_sdk)
 初期化時に以下を渡します。
 
 - `baseUrl`: 例 `https://staging.example.test/api/license/v1`
-- `publicKeyPem`: OtoMarket の Ed25519 signing public key（`kid` 無しの従来トークン検証＋フォールバック用）
+- `publicKeyPem`: OtoMarket の Ed25519 signing public key（`kid` 無しの従来トークン検証用）
 - `cachePath`: ライセンスキャッシュ保存先（keyset キャッシュも同じ場所の兄弟ファイルに保存）
 - `http`: オンライン activation / verify / deactivate / keyset 取得用 transport
 
@@ -133,6 +138,14 @@ config.http = std::make_shared<otomarket::license::JuceHttpTransport>();
 
 otomarket::license::Client licenses(config);
 ```
+
+ライセンスキャッシュには `licenseKey` が含まれるため秘密情報として扱ってください。
+`cachePath` にはユーザー専用ディレクトリを指定してください。POSIX では SDK が
+キャッシュを作成時から `0600` にします。Windows では指定先ディレクトリの既定 ACL
+を使用します。
+
+`Client` インスタンスは thread-safe ではありません。複数スレッドから共有する場合は
+呼び出し側で直列化してください（付属 JUCE パネルは内部で直列化済みです）。
 
 > **`Client` を唯一の真実源（source of truth）に**：ライセンス状態と署名トークンの
 > キャッシュは `Client` が own します。別途プレーンな entitlements JSON などの
@@ -173,10 +186,12 @@ OtoMarket はクリエイターごとの鍵でライセンスを署名でき、�
   activate/verify のついで＋未知 `kid` 検出時に再取得します。
 - `kid` 付きトークンは keyset の該当鍵で、`kid` 無し（従来）トークンは
   `publicKeyPem` で検証します。
-- 取得は best-effort：エンドポイント不通や `getJson` 未対応の transport でも
-  `publicKeyPem` にフォールバックし、`otoIsLicensed()` をオフラインで `false` に
-  したりライセンスを失効させたりしません。自前 transport で keyset を使うには
-  `HttpTransport::getJson` を override してください（`JuceHttpTransport` は実装済み）。
+- `kid` 付きトークンには keyset 内の一致する鍵が必須です。未知 `kid` を
+  `publicKeyPem` で検証するフォールバックは行いません（ダウングレード防止）。
+- 取得済み keyset キャッシュがあればオフライン検証できます。初回取得前、または
+  鍵ローテーション直後で該当鍵が未取得の場合はオンライン接続が必要です。自前
+  transport で keyset を使うには `HttpTransport::getJson` を override してください
+  （`JuceHttpTransport` は実装済み）。
 
 ## HTTP リクエスト仕様（activate / verify / deactivate）
 

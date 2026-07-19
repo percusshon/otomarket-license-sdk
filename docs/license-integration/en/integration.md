@@ -169,7 +169,7 @@ The public key is not secret and is safe to embed in the plugin. Never embed, di
 
 Pass only the public key to `Config.publicKeyPem`. Never embed or display `LICENSE_SIGNING_PRIVATE_KEY`.
 
-Even when OtoMarket uses per-creator signing keys (`kid` tokens), **the SDK fetches the public keyset from `…/keys` automatically**, so you only need to configure `publicKeyPem`. See "Public keyset" in the [glossary](glossary.md).
+When OtoMarket uses per-creator signing keys (`kid` tokens), the SDK fetches the public keyset from `…/keys` automatically. Only legacy tokens without `kid` use `publicKeyPem`; a token with `kid` requires a matching keyset entry and never falls back to `publicKeyPem`. A fetched keyset cache supports offline verification, while the first fetch and the period immediately after key rotation require an online connection. See "Public keyset" in the [glossary](glossary.md).
 
 ## Removing Or Disabling The SDK Later
 

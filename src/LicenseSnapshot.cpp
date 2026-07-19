@@ -336,7 +336,10 @@ std::optional<SnapshotSource> parseSnapshotSource(const std::string& value) {
   if (value == "free") {
     return SnapshotSource::Free;
   }
-  return std::nullopt;
+  if (value == "membership") {
+    return SnapshotSource::Membership;
+  }
+  return SnapshotSource::Unknown;
 }
 
 std::optional<SubscriptionStatus> parseSubscriptionStatus(
@@ -400,10 +403,6 @@ std::optional<SnapshotEntitlement> parseEntitlement(
   }
 
   const auto source = parseSnapshotSource(*sourceString);
-  if (!source) {
-    message = "License snapshot entitlement source is unknown.";
-    return std::nullopt;
-  }
 
   entitlement.productId = *productId;
   entitlement.packId = std::move(packId);

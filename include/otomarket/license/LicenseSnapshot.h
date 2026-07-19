@@ -14,6 +14,8 @@ enum class SnapshotSource {
   Buyout,
   Subscription,
   Free,
+  Membership,
+  Unknown,
 };
 
 enum class SubscriptionStatus {

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cctype>
 #include <cerrno>
 #include <cstdlib>
@@ -21,6 +22,8 @@
 #endif
 #include <windows.h>
 #else
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -417,6 +420,75 @@ std::filesystem::path keysetCachePathFor(const std::filesystem::path& cachePath)
   return path;
 }
 
+std::filesystem::path uniqueTemporaryPath(const std::filesystem::path& path) {
+  static std::atomic<unsigned long long> counter{0};
+  auto temporaryPath = path;
+#ifdef _WIN32
+  const auto processId = static_cast<unsigned long long>(GetCurrentProcessId());
+#else
+  const auto processId = static_cast<unsigned long long>(getpid());
+#endif
+  temporaryPath += ".tmp." + std::to_string(processId) + "." +
+    std::to_string(counter.fetch_add(1));
+  return temporaryPath;
+}
+
+bool writeFileAtomically(const std::filesystem::path& path, const std::string& body) {
+  const auto temporaryPath = uniqueTemporaryPath(path);
+  try {
+#ifdef _WIN32
+    // Windows relies on the ACL of the caller-selected user profile directory.
+    {
+      std::ofstream output(temporaryPath, std::ios::binary | std::ios::trunc);
+      if (!output || !(output << body)) {
+        std::filesystem::remove(temporaryPath);
+        return false;
+      }
+    }
+    if (!MoveFileExW(
+          temporaryPath.c_str(),
+          path.c_str(),
+          MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH
+        )) {
+      std::filesystem::remove(temporaryPath);
+      return false;
+    }
+#else
+    const int descriptor = ::open(
+      temporaryPath.c_str(),
+      O_CREAT | O_EXCL | O_WRONLY,
+      S_IRUSR | S_IWUSR
+    );
+    if (descriptor < 0) {
+      return false;
+    }
+
+    size_t written = 0;
+    while (written < body.size()) {
+      const auto count = ::write(descriptor, body.data() + written, body.size() - written);
+      if (count < 0) {
+        const int savedError = errno;
+        ::close(descriptor);
+        std::filesystem::remove(temporaryPath);
+        errno = savedError;
+        return false;
+      }
+      written += static_cast<size_t>(count);
+    }
+    if (::close(descriptor) != 0) {
+      std::filesystem::remove(temporaryPath);
+      return false;
+    }
+    std::filesystem::rename(temporaryPath, path);
+#endif
+    return true;
+  } catch (...) {
+    std::error_code ignored;
+    std::filesystem::remove(temporaryPath, ignored);
+    return false;
+  }
+}
+
 std::optional<KeysetCacheRecord> parseKeysetCacheBody(const std::string& body) {
   const auto json = parseJsonObject(body);
   if (!json) {
@@ -480,39 +552,20 @@ bool writeKeysetCacheFile(
       std::filesystem::create_directories(parent);
     }
 
-    auto temporaryPath = path;
-    temporaryPath += ".tmp";
-
-    {
-      std::ofstream output(temporaryPath, std::ios::trunc);
-      if (!output) {
-        return false;
+    std::ostringstream output;
+    output << "{\"keys\":{";
+    bool first = true;
+    for (const auto& key : record.keys) {
+      if (!first) {
+        output << ",";
       }
-
-      output << "{\"keys\":{";
-      bool first = true;
-      for (const auto& key : record.keys) {
-        if (!first) {
-          output << ",";
-        }
-        first = false;
-        output << quoteJson(key.first) << ":" << quoteJson(key.second);
-      }
-      output << "},\"fetchedAt\":"
-             << static_cast<long long>(std::chrono::system_clock::to_time_t(record.fetchedAt))
-             << "}";
-
-      if (!output) {
-        return false;
-      }
+      first = false;
+      output << quoteJson(key.first) << ":" << quoteJson(key.second);
     }
-
-    if (std::filesystem::exists(path)) {
-      std::filesystem::remove(path);
-    }
-
-    std::filesystem::rename(temporaryPath, path);
-    return true;
+    output << "},\"fetchedAt\":"
+           << static_cast<long long>(std::chrono::system_clock::to_time_t(record.fetchedAt))
+           << "}";
+    return writeFileAtomically(path, output.str());
   } catch (...) {
     return false;
   }
@@ -1392,36 +1445,18 @@ bool Client::writeCache(const CacheRecord& cache, std::string& message) const {
       std::filesystem::create_directories(parent);
     }
 
-    auto temporaryPath = config_.cachePath;
-    temporaryPath += ".tmp";
-
-    {
-      std::ofstream output(temporaryPath, std::ios::trunc);
-      if (!output) {
-        message = "Could not open temporary cache file for writing.";
-        return false;
-      }
-
-      output << makeJsonObject({
-        {"version", "1"},
-        {"productId", quoteJson(cache.productId)},
-        {"licenseKey", quoteJson(cache.licenseKey)},
-        {"machineId", quoteJson(cache.machineId)},
-        {"license", quoteJson(cache.licenseToken)},
-        {"savedAt", quoteJson(formatIso8601(now()))},
-      });
-
-      if (!output) {
-        message = "Could not write license cache.";
-        return false;
-      }
+    const auto body = makeJsonObject({
+      {"version", "1"},
+      {"productId", quoteJson(cache.productId)},
+      {"licenseKey", quoteJson(cache.licenseKey)},
+      {"machineId", quoteJson(cache.machineId)},
+      {"license", quoteJson(cache.licenseToken)},
+      {"savedAt", quoteJson(formatIso8601(now()))},
+    });
+    if (!writeFileAtomically(config_.cachePath, body)) {
+      message = "Could not atomically write license cache.";
+      return false;
     }
-
-    if (std::filesystem::exists(config_.cachePath)) {
-      std::filesystem::remove(config_.cachePath);
-    }
-
-    std::filesystem::rename(temporaryPath, config_.cachePath);
     return true;
   } catch (const std::exception& exception) {
     message = exception.what();
