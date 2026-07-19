@@ -35,6 +35,11 @@ Use a stable, unique `machineId` during tests. For shared staging keys, avoid
 generic values such as `test-machine`; use something like
 `sandbox-yourname-macbook`.
 
+## Which API to use (check first)
+
+- **Marketplace creators**: you can skip "Server Setup" below (it is for developers running the OtoMarket app itself). The OtoMarket team will hand you the hosted staging `baseUrl` and sandbox keys — just contact support. Every cURL / SDK step below works as-is once you substitute that staging `baseUrl`.
+- **Running the OtoMarket app locally**: continue with "Server Setup".
+
 ## Server Setup
 
 For a local API check:
@@ -220,4 +225,4 @@ Before switching from sandbox to a real product:
 3. Keep the same public key handling path.
 4. Use the production or staging `baseUrl` supplied by OtoMarket.
 5. Keep `machineId` stable for the same user and device.
-6. Gate only the product features that require a license.
+6. Gate only the product features that require a license. **You are not done until you have confirmed the gate also engages on the "stops working" side** — see the [integration guide's checklist](./integration.md#integration-checklist-you-are-not-done-until-gating-is-in).

@@ -47,6 +47,14 @@ If you are integrating a VST3/AU plugin, also read the [plugin integration guide
 
 At this point activation works. You implement the activation screen (key entry, status) yourself. If you want a ready-made screen instead, enable the activation panel below.
 
+## Integration checklist (you are not done until gating is in)
+
+The SDK only answers "is this license currently valid" — **stopping the product is your gating code's job**. If you skip the gate, the product keeps working even when activation fails. Verify all three points before you ship:
+
+1. **Integration**: `otoActivate` succeeds with the sandbox key and `otoIsLicensed()` returns `true`.
+2. **Gating**: with `otoIsLicensed()` returning `false`, the product's core features are unusable. Pick the mechanism that fits your product (a full launch gate, bypassing audio processing, disabling save, …). If you use the activation panel, follow its state changes with your gate.
+3. **Verify the "stops working" side**: besides confirming a valid key works, confirm the gate actually engages ① before activation, ② after `deactivate`, and ③ for subscription products, after the license lapses. **Do not ship after testing only the happy path.**
+
 ## Optional: ready-made activation panel (don't build the UI)
 
 With the same SDK, enable the activation-panel target at build time to use a ready-made JUCE panel for key entry, status display, and deactivation.

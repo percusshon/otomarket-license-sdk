@@ -26,6 +26,11 @@ hosted staging API では、この repository seed だけではこれらの行�
 
 テスト時は、安定した一意の `machineId` を使ってください。共有 staging key では、`test-machine` のような汎用値は避け、`sandbox-yourname-macbook` のような値を使います。
 
+## どの API を使うか（最初に確認）
+
+- **出品クリエイターの方**: この節の「Server Setup」は不要です（OtoMarket 本体をローカルで動かす開発者向けの手順です）。ホストされた検証環境（staging）の `baseUrl` と sandbox 用のキーを運営がご案内しますので、サポート窓口までご連絡ください。以降の cURL / SDK の手順は、`baseUrl` を案内された staging の値に読み替えるだけでそのまま使えます。
+- **OtoMarket 本体を手元で動かす場合**: 次の「Server Setup」に進んでください。
+
 ## Server Setup
 
 ローカル API を確認する場合:
@@ -209,4 +214,4 @@ sandbox から実商品へ切り替える前に確認してください。
 3. 公開鍵の扱いは同じ経路のままにします。
 4. OtoMarket から提供された production または staging の `baseUrl` を使います。
 5. 同じ user と device では `machineId` を安定させます。
-6. ライセンスが必要な商品機能だけを gate します。
+6. ライセンスが必要な商品機能だけを gate します。**ゲートが実際に「止まる側」でも効くことの確認まで含めて完了です** — [SDK 組み込みガイドの「組み込みチェックリスト」](./integration.md#組み込みチェックリストゲート実装まで含めて完了です)を参照してください。
