@@ -1,0 +1,10 @@
+TweetNaCl
+=========
+
+Source:
+https://tweetnacl.cr.yp.to/20140427/tweetnacl.c
+https://tweetnacl.cr.yp.to/20140427/tweetnacl.h
+
+The TweetNaCl project describes TweetNaCl as a self-contained public-domain C
+library. See https://tweetnacl.cr.yp.to/ for the upstream distribution and
+authorship details.
